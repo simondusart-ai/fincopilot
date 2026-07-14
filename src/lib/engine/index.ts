@@ -1,5 +1,5 @@
 export * from './types';
-export { monthlyizeFlow, monthlyizeLevel, monthlyizeByFrequency, sum } from './monthlyize';
+export { monthlyizeFlow, monthlyizeLevel, monthlyizeByFrequency, quartersFromAmount, sum } from './monthlyize';
 export { validateInputs } from './validate';
 export { consolidate, fmtK } from './consolidate';
 export { diffSubmissions } from './diff';

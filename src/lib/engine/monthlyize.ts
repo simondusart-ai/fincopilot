@@ -71,12 +71,45 @@ export function monthlyizeByFrequency(quarters: QuarterValues, frequency: LineFr
         months[idx[0]] += value;
         break;
       case 'mensuel':
+      case 'annuel':
       default:
         for (let i = 0; i < 3; i++) months[idx[i]] += value / 3;
         break;
     }
   }
   return months;
+}
+
+/**
+ * Déduit les quatre valeurs trimestrielles d'un MONTANT unitaire et d'une fréquence.
+ * - mensuel : chaque trimestre = montant x 3 (5 000 par mois donnent 15 000 par trimestre) ;
+ * - trimestriel : chaque trimestre = montant ;
+ * - annuel : chaque trimestre = montant / 4 (60 000 par an donnent 15 000 par trimestre) ;
+ * - one_shot : montant sur le trimestre choisi (1 à 4), zéro ailleurs.
+ */
+export function quartersFromAmount(
+  amount: number,
+  frequency: LineFrequency,
+  oneshotQuarter = 1,
+): QuarterValues {
+  switch (frequency) {
+    case 'mensuel': {
+      const v = amount * 3;
+      return [v, v, v, v];
+    }
+    case 'trimestriel':
+      return [amount, amount, amount, amount];
+    case 'annuel': {
+      const v = amount / 4;
+      return [v, v, v, v];
+    }
+    case 'one_shot': {
+      const q: QuarterValues = [0, 0, 0, 0];
+      const i = Math.min(4, Math.max(1, Math.round(oneshotQuarter))) - 1;
+      q[i] = amount;
+      return q;
+    }
+  }
 }
 
 export function sum(values: number[]): number {

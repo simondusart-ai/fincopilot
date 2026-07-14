@@ -128,6 +128,10 @@ export interface SubmissionCustomLineRow {
   q2: number;
   q3: number;
   q4: number;
+  /** Montant unitaire : quand il est renseigné, les trimestres en découlent. */
+  amount: number | null;
+  /** Trimestre porteur d'un décaissement one_shot (1 à 4). */
+  oneshot_quarter: number | null;
   /** Réalisé du trimestre précédent. Non alimenté pour l'instant. */
   prev_q4: number | null;
 }

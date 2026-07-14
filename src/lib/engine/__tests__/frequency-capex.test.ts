@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monthlyizeByFrequency, sum } from '../monthlyize';
+import { monthlyizeByFrequency, quartersFromAmount, sum } from '../monthlyize';
 import { consolidate } from '../consolidate';
 import type { ConsolidationInputs, LineFrequency, QuarterValues } from '../types';
 
@@ -9,7 +9,7 @@ import type { ConsolidationInputs, LineFrequency, QuarterValues } from '../types
  * est toujours égale à la somme des 4 trimestres.
  */
 
-const FREQUENCIES: LineFrequency[] = ['mensuel', 'trimestriel', 'one_shot'];
+const FREQUENCIES: LineFrequency[] = ['mensuel', 'trimestriel', 'annuel', 'one_shot'];
 
 describe('monthlyizeByFrequency : repartition sur 12 mois', () => {
   const q: QuarterValues = [300, 600, 900, 1200];
@@ -36,6 +36,35 @@ describe('monthlyizeByFrequency : repartition sur 12 mois', () => {
     expect(monthlyizeByFrequency([0, 500, 0, 0], 'one_shot')).toEqual([
       0, 0, 0, 500, 0, 0, 0, 0, 0, 0, 0, 0,
     ]);
+  });
+});
+
+describe('quartersFromAmount : le montant unitaire pilote les trimestres', () => {
+  it('mensuel : 5 000 par mois donnent 15 000 par trimestre', () => {
+    expect(quartersFromAmount(5_000, 'mensuel')).toEqual([15_000, 15_000, 15_000, 15_000]);
+  });
+
+  it('annuel : 60 000 par an donnent 15 000 par trimestre', () => {
+    expect(quartersFromAmount(60_000, 'annuel')).toEqual([15_000, 15_000, 15_000, 15_000]);
+  });
+
+  it('trimestriel : le montant est celui de chaque trimestre', () => {
+    expect(quartersFromAmount(12_000, 'trimestriel')).toEqual([12_000, 12_000, 12_000, 12_000]);
+  });
+
+  it('one_shot : le montant tombe sur le trimestre choisi, zero ailleurs', () => {
+    expect(quartersFromAmount(40_000, 'one_shot', 3)).toEqual([0, 0, 40_000, 0]);
+    expect(quartersFromAmount(40_000, 'one_shot')).toEqual([40_000, 0, 0, 0]); // defaut T1
+  });
+
+  it.each(FREQUENCIES)('la mensualisation conserve la somme des trimestres (%s)', (frequency) => {
+    const q = quartersFromAmount(9_000, frequency, 2);
+    expect(sum(monthlyizeByFrequency(q, frequency))).toBeCloseTo(sum(q), 6);
+  });
+
+  it('annuel se mensualise lineairement, comme mensuel', () => {
+    const q = quartersFromAmount(60_000, 'annuel');
+    expect(monthlyizeByFrequency(q, 'annuel')).toEqual(new Array(12).fill(5_000));
   });
 });
 

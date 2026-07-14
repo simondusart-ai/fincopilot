@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 import { SubmissionStatusBadge } from '@/components/navette-status-card';
-import { businessCaseLines, computeBusinessCase } from '@/lib/engine';
+import { businessCaseLines, computeBusinessCase, quartersFromAmount } from '@/lib/engine';
 import type { DriverKind, LineFrequency } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
 import type { DriverDefRow, SubmissionRow } from '@/lib/data';
@@ -74,6 +74,10 @@ interface CustomEdit {
   vendor: string;
   frequency: LineFrequency;
   isNew: boolean;
+  /** Montant unitaire. Renseigné, il pilote les quatre trimestres, qui passent en lecture seule. */
+  amount: string;
+  /** Trimestre porteur d'un décaissement one_shot. */
+  oneshotQuarter: string;
   q: [string, string, string, string];
   prevQ4: string;
 }
@@ -135,6 +139,8 @@ export default function NavettePage() {
           vendor: c.vendor ?? '',
           frequency: c.frequency,
           isNew: c.is_new,
+          amount: c.amount != null ? String(c.amount) : '',
+          oneshotQuarter: c.oneshot_quarter != null ? String(c.oneshot_quarter) : '1',
           q: [String(c.q1), String(c.q2), String(c.q3), String(c.q4)] as [string, string, string, string],
           prevQ4: c.prev_q4 != null ? String(c.prev_q4) : '',
         })),
@@ -171,6 +177,15 @@ export default function NavettePage() {
       businessCaseLines({ id: bc.id, label: bc.label, targetDepartmentId: bc.target_department_id!, params: bc.params }),
     );
 
+  /**
+   * Trimestres d'une ligne libre : déduits du montant s'il est renseigné (les T1-T4
+   * passent alors en lecture seule), sinon saisis à la main (compatibilité).
+   */
+  const customQuarters = (c: CustomEdit): number[] =>
+    c.amount.trim() !== ''
+      ? [...quartersFromAmount(num(c.amount), c.frequency, Number(c.oneshotQuarter) || 1)]
+      : c.q.map(num);
+
   /** Coût d'un trimestre pour une ligne du référentiel (un volume de clients n'est pas un coût). */
   const driverQuarterValue = (def: DriverDefRow, i: number): number => {
     const line = edit[def.id];
@@ -192,7 +207,10 @@ export default function NavettePage() {
     const { drivers, customs: cs, bcs } = sectionLines(s);
     const out = [0, 0, 0, 0];
     for (const def of drivers) for (let i = 0; i < 4; i++) out[i] += driverQuarterValue(def, i);
-    for (const c of cs) for (let i = 0; i < 4; i++) out[i] += num(c.q[i]);
+    for (const c of cs) {
+      const q = customQuarters(c);
+      for (let i = 0; i < 4; i++) out[i] += q[i];
+    }
     for (const l of bcs) for (let i = 0; i < 4; i++) out[i] += l.q[i];
     return out;
   };
@@ -235,11 +253,17 @@ export default function NavettePage() {
       if (label === '') errs.push('Une ligne libre a un libellé vide.');
       else if (labels.has(label)) errs.push(`Deux lignes libres portent le libellé "${label}".`);
       labels.add(label);
-      c.q.forEach((v, i) => {
-        const n = Number(v);
-        if (v.trim() === '' || !Number.isFinite(n)) errs.push(`${label || 'Ligne libre'}, T${i + 1} : valeur non numérique.`);
-        else if (n < 0) errs.push(`${label || 'Ligne libre'}, T${i + 1} : valeur négative non admise.`);
-      });
+      if (c.amount.trim() !== '') {
+        const a = Number(c.amount);
+        if (!Number.isFinite(a)) errs.push(`${label || 'Ligne libre'} : montant non numérique.`);
+        else if (a < 0) errs.push(`${label || 'Ligne libre'} : montant négatif non admis.`);
+      } else {
+        c.q.forEach((v, i) => {
+          const n = Number(v);
+          if (v.trim() === '' || !Number.isFinite(n)) errs.push(`${label || 'Ligne libre'}, T${i + 1} : valeur non numérique.`);
+          else if (n < 0) errs.push(`${label || 'Ligne libre'}, T${i + 1} : valeur négative non admise.`);
+        });
+      }
     }
     return errs;
   }
@@ -266,19 +290,24 @@ export default function NavettePage() {
 
   async function persistCustomLines(submissionId: string, copy = false) {
     if (customs.length === 0) return;
-    const rows = customs.map((c) => ({
-      ...(copy ? {} : { id: c.id }),
-      submission_id: submissionId,
-      kind: c.kind,
-      label: c.label.trim(),
-      is_new: c.isNew,
-      vendor: c.vendor.trim() === '' ? null : c.vendor.trim(),
-      frequency: c.frequency,
-      q1: num(c.q[0]),
-      q2: num(c.q[1]),
-      q3: num(c.q[2]),
-      q4: num(c.q[3]),
-    }));
+    const rows = customs.map((c) => {
+      const q = customQuarters(c);
+      return {
+        ...(copy ? {} : { id: c.id }),
+        submission_id: submissionId,
+        kind: c.kind,
+        label: c.label.trim(),
+        is_new: c.isNew,
+        vendor: c.vendor.trim() === '' ? null : c.vendor.trim(),
+        frequency: c.frequency,
+        amount: c.amount.trim() === '' ? null : num(c.amount),
+        oneshot_quarter: c.frequency === 'one_shot' ? Number(c.oneshotQuarter) || 1 : null,
+        q1: q[0],
+        q2: q[1],
+        q3: q[2],
+        q4: q[3],
+      };
+    });
     const { error } = copy
       ? await supabase.from('submission_custom_lines').insert(rows)
       : await supabase.from('submission_custom_lines').upsert(rows);
@@ -311,6 +340,8 @@ export default function NavettePage() {
         is_new: true,
         vendor: null,
         frequency,
+        amount: null,
+        oneshot_quarter: null,
         q1: 0, q2: 0, q3: 0, q4: 0,
       });
       if (error) throw new Error(error.message);
@@ -660,6 +691,7 @@ export default function NavettePage() {
                           <th className="px-3 py-3 font-semibold">Type</th>
                           {s.hasVendor && <th className="px-3 py-3 font-semibold">Fournisseur</th>}
                           {extensible && <th className="px-3 py-3 font-semibold">Statut</th>}
+                          {extensible && <th className="px-3 py-3 text-right font-semibold">Montant (€)</th>}
                           {extensible && <th className="px-3 py-3 font-semibold">Fréquence</th>}
                           <th className="px-3 py-3 text-right font-semibold">{prevQuarterLabel}</th>
                           <th className="px-3 py-3 text-right font-semibold">T1</th>
@@ -681,6 +713,7 @@ export default function NavettePage() {
                             <td className="px-3 py-2.5"><Badge tone="muted">{KIND_TYPE[def.kind] ?? '-'}</Badge></td>
                             {s.hasVendor && <td className="px-3 py-2.5 text-ink/30">-</td>}
                             {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                            {extensible && <td className="px-3 py-2.5 text-right text-ink/30">-</td>}
                             {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
                             <td className="px-3 py-2.5 text-right">
                               <input type="text" disabled readOnly value={def.prev_q4 != null ? String(def.prev_q4) : ''} className={`w-24 text-right ${inputBase}`} />
@@ -745,21 +778,53 @@ export default function NavettePage() {
                                 <option value="new">Nouveau</option>
                               </select>
                             </td>
+                            <td className="px-3 py-2 text-right">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={c.amount}
+                                disabled={!canEditLines}
+                                placeholder="ex. 5000"
+                                title="Renseigné, il calcule les quatre trimestres. Vide, la saisie par trimestre reste possible."
+                                onChange={(e) => updateCustom(c.id, { amount: e.target.value })}
+                                className={`w-28 text-right ${inputBase}`}
+                              />
+                            </td>
                             <td className="px-3 py-2">
-                              <select value={c.frequency} disabled={!canEditLines} onChange={(e) => updateCustom(c.id, { frequency: e.target.value as LineFrequency })} className={`bg-white ${inputBase}`}>
-                                <option value="mensuel">Mensuel</option>
-                                <option value="trimestriel">Trimestriel</option>
-                                <option value="one_shot">One shot</option>
-                              </select>
+                              <div className="flex items-center gap-1">
+                                <select value={c.frequency} disabled={!canEditLines} onChange={(e) => updateCustom(c.id, { frequency: e.target.value as LineFrequency })} className={`bg-white ${inputBase}`}>
+                                  <option value="mensuel">Mensuel</option>
+                                  <option value="trimestriel">Trimestriel</option>
+                                  <option value="annuel">Annuel</option>
+                                  <option value="one_shot">One shot</option>
+                                </select>
+                                {c.frequency === 'one_shot' && (
+                                  <select value={c.oneshotQuarter} disabled={!canEditLines} onChange={(e) => updateCustom(c.id, { oneshotQuarter: e.target.value })} className={`bg-white ${inputBase}`}>
+                                    {[1, 2, 3, 4].map((q) => (<option key={q} value={q}>T{q}</option>))}
+                                  </select>
+                                )}
+                              </div>
                             </td>
                             <td className="px-3 py-2 text-right">
                               <input type="text" disabled readOnly value={c.prevQ4} className={`w-24 text-right ${inputBase}`} />
                             </td>
-                            {[0, 1, 2, 3].map((i) => (
-                              <td key={i} className="px-3 py-2 text-right">
-                                <input type="text" inputMode="decimal" value={c.q[i]} disabled={!canEditLines} onChange={(e) => updateCustomQ(c.id, i, e.target.value)} className={`w-24 text-right ${inputBase}`} />
-                              </td>
-                            ))}
+                            {[0, 1, 2, 3].map((i) => {
+                              const derived = c.amount.trim() !== '';
+                              return (
+                                <td key={i} className="px-3 py-2 text-right">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={derived ? fmtQ(customQuarters(c)[i]) : c.q[i]}
+                                    disabled={!canEditLines || derived}
+                                    readOnly={derived}
+                                    title={derived ? 'Calculé à partir du montant et de la fréquence.' : undefined}
+                                    onChange={(e) => updateCustomQ(c.id, i, e.target.value)}
+                                    className={`w-24 text-right ${inputBase}`}
+                                  />
+                                </td>
+                              );
+                            })}
                             {hasHeadcount && <td className="px-5 py-2 text-right text-ink/30">-</td>}
                             {canEditLines && (
                               <td className="px-3 py-2 text-right">
@@ -781,6 +846,7 @@ export default function NavettePage() {
                             <td className="px-3 py-2.5"><Badge tone="accent" dot="mint">Business case</Badge></td>
                             {s.hasVendor && <td className="px-3 py-2.5 text-ink/30">-</td>}
                             {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                            {extensible && <td className="px-3 py-2.5 text-right text-ink/30">-</td>}
                             {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
                             <td className="px-3 py-2.5 text-ink/30 text-right">-</td>
                             {[0, 1, 2, 3].map((i) => (
@@ -796,6 +862,7 @@ export default function NavettePage() {
                           <td className="px-5 py-2 font-semibold">Sous-total {s.title.toLowerCase()}</td>
                           <td />
                           {s.hasVendor && <td />}
+                          {extensible && <td />}
                           {extensible && <td />}
                           {extensible && <td />}
                           <td />

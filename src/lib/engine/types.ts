@@ -57,12 +57,12 @@ export type DriverKind =
 
 /**
  * Fréquence de décaissement d'une ligne, qui pilote sa mensualisation :
- * - mensuel : un tiers du montant trimestriel chaque mois du trimestre ;
+ * - mensuel et annuel : répartition linéaire, un tiers du trimestre chaque mois ;
  * - trimestriel : 100 % au dernier mois du trimestre ;
  * - one_shot : 100 % au premier mois du trimestre saisi.
  * Propriété garantie dans tous les cas : la somme des 12 mois égale la somme des 4 trimestres.
  */
-export type LineFrequency = 'mensuel' | 'trimestriel' | 'one_shot';
+export type LineFrequency = 'mensuel' | 'trimestriel' | 'annuel' | 'one_shot';
 
 export interface DriverDef {
   id: string;
