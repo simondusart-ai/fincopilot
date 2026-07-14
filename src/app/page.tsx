@@ -23,5 +23,5 @@ export default function Home() {
       router.replace(profile?.role === 'cfo' ? '/dashboard' : '/navette');
     })();
   }, [router]);
-  return <p className="text-slate-500 py-12 text-center">Chargement...</p>;
+  return <p className="py-12 text-center text-ink/50">Chargement...</p>;
 }
