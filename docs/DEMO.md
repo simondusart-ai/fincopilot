@@ -1,4 +1,4 @@
-# Déroulé de démonstration (8 minutes)
+# Déroulé de démonstration (9 minutes)
 
 Préparation, avant la restitution : `npm run seed` pour remettre la démo à zéro ; deux fenêtres de navigateur prêtes (une normale connectée en `cfo@fincopilot.demo`, une privée connectée en `growth@fincopilot.demo`) ; le serveur qui tourne ; une fenêtre de terminal ouverte sur le repo.
 
@@ -16,7 +16,9 @@ Préparation, avant la restitution : `npm run seed` pour remettre la démo à z�
 
 **6. Réutilisabilité (1 min).** Déconnexion, `cfo@hexafloor.demo` : autre société, trois départements, autres drivers, autres seuils, même code. Son budget déclenche runway sous seuil de gel et trésorerie négative : l'outil dit "budget non finançable en l'état".
 
-**7. Sous le capot et roadmap (45 s).** Terminal : `npm test`, 40 tests verts, calculs vérifiés à la main, aucun chiffre rédigé par IA. Roadmap : bridge budget vs réalisés (le pack de pilotage), workflow d'approbation, générateur de business case sur les mêmes conventions.
+**7. Le pilotage mensuel, réalisé vs budget (1 min 30).** Fenêtre CFO, onglet Pilotage, exercice 2026 : les indicateurs réalisés mois par mois (MRR, ajouts nets, ARPA implicite, NRR, CAC moyen vs cible 515 €, marge de contribution, burn, runway) et le P&L annuel 2024-2026 avec une colonne Budget 2027 (CA et EBITDA issus des navettes). Les alertes sont sorties par le moteur : CAC moyen au-dessus de la cible au second semestre. Basculer sur l'exercice 2027 (vide), saisir janvier en direct dans la grille (nouveaux, churnés, MRR, S&M, trésorerie), enregistrer : la tuile de janvier et les indicateurs se recalculent aussitôt. Le pont réalisé vs budget est en place, sans quitter le moteur.
+
+**8. Sous le capot et roadmap (45 s).** Terminal : `npm test`, 51 tests verts, calculs vérifiés à la main, aucun chiffre rédigé par IA. Roadmap : reprise des réalisés depuis la comptabilité, NRR par cohorte client par client, workflow d'approbation, générateur de business case sur les mêmes conventions.
 
 ## Plans de secours
 
