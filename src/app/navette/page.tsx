@@ -619,8 +619,19 @@ export default function NavettePage() {
                 <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
                   <h2 className="font-semibold text-ink">{s.title}</h2>
                   {!s.isCost && <span className="text-xs text-ink/50">Hors total du département.</span>}
-                  {extensible && canEditLines && (
-                    <button onClick={() => addCustom(s.addKind!)} disabled={busy} className={`${btnSecondary} ml-auto`}>
+                  {/*
+                    Le bouton reste VISIBLE des qu'on peut gerer la navette, et seulement
+                    desactive quand elle est figee : c'etait la cause du bug (il n'etait
+                    rendu qu'en brouillon, or toutes les navettes du seed sont soumises,
+                    donc il n'apparaissait jamais).
+                  */}
+                  {extensible && canManage && (
+                    <button
+                      onClick={() => addCustom(s.addKind!)}
+                      disabled={busy || !canEditLines}
+                      title={canEditLines ? undefined : 'Navette figée : créez une nouvelle version pour ajouter une ligne.'}
+                      className={`${btnSecondary} ml-auto`}
+                    >
                       {s.addLabel}
                     </button>
                   )}
