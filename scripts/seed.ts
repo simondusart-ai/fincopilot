@@ -9,7 +9,21 @@
  * la démo à zéro en trente secondes avant une présentation.
  */
 import { createClient } from '@supabase/supabase-js';
-import { DEMO_PASSWORD, FINCOPILOT, HEXAFLOOR, type SeedCompany } from '../src/lib/seed-data';
+import {
+  DEMO_PASSWORD,
+  FINCOPILOT,
+  FINCOPILOT_ACTUALS_2026,
+  FINCOPILOT_PNL_YEARS,
+  HEXAFLOOR,
+  type PnlYearSeed,
+  type SeedCompany,
+} from '../src/lib/seed-data';
+import type { ActualMonthInput } from '../src/lib/engine';
+
+interface CompanyHistory {
+  pnlYears: PnlYearSeed[];
+  actuals: ActualMonthInput[];
+}
 
 const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -44,7 +58,7 @@ async function wipeCompany(seed: SeedCompany) {
   }
 }
 
-async function insertCompany(seed: SeedCompany) {
+async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
   const cfg = seed.config;
   const { data: company, error: cErr } = await sb
     .from('companies')
@@ -60,6 +74,8 @@ async function insertCompany(seed: SeedCompany) {
       runway_freeze_months: cfg.runwayFreezeMonths,
       payback_cap_months: cfg.paybackCapMonths ?? null,
       seasonal_keys: cfg.seasonalKeys ?? {},
+      opening_clients: seed.openingClients,
+      cac_avg_target: seed.cacAvgTarget,
     })
     .select()
     .single();
@@ -166,14 +182,58 @@ async function insertCompany(seed: SeedCompany) {
     if (lErr) throw new Error(lErr.message);
   }
 
+  // Historique realise (P&L annuel et indicateurs mensuels). L'annee des mensuels
+  // est l'annee N = budget_year - 1. Les societes sans historique n'en inserent aucun.
+  if (history) {
+    const pnlRows = history.pnlYears.map((p) => ({
+      company_id: company.id,
+      year: p.year,
+      revenue: p.revenue,
+      sm: p.sm,
+      tech_product: p.techProduct,
+      payroll_other: p.payrollOther,
+      ga: p.ga,
+      ebitda: p.ebitda,
+      da: p.da,
+      net_income: p.netIncome,
+    }));
+    if (pnlRows.length > 0) {
+      const { error } = await sb.from('pnl_years').insert(pnlRows);
+      if (error) throw new Error(error.message);
+    }
+
+    const actualsYear = cfg.budgetYear - 1;
+    const monthlyRows = history.actuals.map((m) => ({
+      company_id: company.id,
+      year: actualsYear,
+      month: m.month,
+      new_clients: m.newClients,
+      churned_clients: m.churnedClients,
+      mrr_end: m.mrrEnd,
+      revenue_month: m.revenueMonth,
+      sm_spend: m.smSpend,
+      cash_end: m.cashEnd,
+      nrr_measured: m.nrrMeasured,
+    }));
+    if (monthlyRows.length > 0) {
+      const { error } = await sb.from('monthly_actuals').insert(monthlyRows);
+      if (error) throw new Error(error.message);
+    }
+    console.log(`${cfg.name} : historique ${pnlRows.length} exercice(s) P&L, ${monthlyRows.length} mois realises (${actualsYear}).`);
+  }
+
   console.log(`${cfg.name} : ${seed.departments.length} départements, ${seed.submissions.length} navettes, ${seed.users.length} comptes.`);
 }
 
 async function main() {
-  for (const seed of [FINCOPILOT, HEXAFLOOR]) {
+  const jobs: Array<[SeedCompany, CompanyHistory | undefined]> = [
+    [FINCOPILOT, { pnlYears: FINCOPILOT_PNL_YEARS, actuals: FINCOPILOT_ACTUALS_2026 }],
+    [HEXAFLOOR, undefined],
+  ];
+  for (const [seed, history] of jobs) {
     console.log(`Remise à zéro de ${seed.config.name}...`);
     await wipeCompany(seed);
-    await insertCompany(seed);
+    await insertCompany(seed, history);
   }
   console.log(`\nTerminé. Mot de passe de tous les comptes de démo : ${DEMO_PASSWORD}`);
   console.log('Comptes FinCopilot : cfo@, tech@, sales@, growth@, ops@, fap@ (fincopilot.demo)');
