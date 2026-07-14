@@ -19,4 +19,5 @@ export type {
   BusinessCaseYear,
   BusinessCaseResult,
   AcceptedBusinessCase,
+  BusinessCaseLine,
 } from './business-case';

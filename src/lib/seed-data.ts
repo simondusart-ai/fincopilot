@@ -82,6 +82,8 @@ export interface SeedUser {
 export interface BusinessCaseSeed {
   label: string;
   targetDepartmentId: string;
+  /** Département qui porte les COGS du projet. Absent = le département cible. */
+  cogsDepartmentId?: string;
   params: BusinessCaseInput;
 }
 
@@ -419,6 +421,9 @@ export const FINCOPILOT_BUSINESS_CASES: BusinessCaseSeed[] = [
   {
     label: 'Offre CGP',
     targetDepartmentId: 'fc-fap',
+    // Dependance inter-metiers : le projet est porte par FA&P, mais le service vendu
+    // est produit par Ops / CS, qui en porte donc les COGS dans sa propre navette.
+    cogsDepartmentId: 'fc-ops',
     params: {
       label: 'Offre CGP',
       horizonYears: 3,

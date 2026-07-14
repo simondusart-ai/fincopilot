@@ -173,3 +173,74 @@ describe('applyBusinessCases : injection des cas acceptes dans la consolidation'
     expect(applied.submissions[0].lines.length).toBe(baseInputs.submissions[0].lines.length);
   });
 });
+
+describe('applyBusinessCases : les COGS creent une dependance inter-metiers', () => {
+  /** Deux departements : d1 porte le projet, d2 produit le service vendu. */
+  const twoDepts: ConsolidationInputs = {
+    config: {
+      name: 'T', budgetYear: 2027, openingCash: 2_000_000, openingMrr: 100_000, arpa: 100,
+      grossMarginPct: 0.7, monthlyChurnPct: 0, runwayVigilanceMonths: 18, runwayFreezeMonths: 12,
+    },
+    departments: [
+      { id: 'd1', code: 'D1', name: 'Sales', envelope: null, isSalesMarketing: false },
+      { id: 'd2', code: 'D2', name: 'Ops', envelope: null, isSalesMarketing: false },
+    ],
+    channels: [],
+    driverDefs: [
+      { id: 'p1', departmentId: 'd1', code: 'P1', label: 'Salaires', kind: 'payroll' },
+      { id: 'p2', departmentId: 'd2', code: 'P2', label: 'Salaires Ops', kind: 'payroll' },
+    ],
+    submissions: [
+      { departmentId: 'd1', version: 1, status: 'submitted', lines: [{ driverDefId: 'p1', q: [10_000, 10_000, 10_000, 10_000] }] },
+      { departmentId: 'd2', version: 1, status: 'submitted', lines: [{ driverDefId: 'p2', q: [10_000, 10_000, 10_000, 10_000] }] },
+    ],
+  };
+
+  // Projet porte par d1, dont les couts recurrents (COGS) sont produits par d2.
+  const croise: AcceptedBusinessCase = {
+    id: 'bc2',
+    label: 'Offre CGP',
+    targetDepartmentId: 'd1',
+    cogsDepartmentId: 'd2',
+    params: {
+      label: 'Offre CGP',
+      horizonYears: 1,
+      discountRate: 0.15,
+      years: [{ revenue: 0, recurringCosts: 80_000, fte: 1, monthlyCostPerFte: 5_000, otherOpex: 0 }],
+    },
+  };
+
+  it('les salaires vont au porteur, les COGS au departement designe', () => {
+    const lines = businessCaseLines(croise);
+    const pay = lines.find((l) => l.kind === 'payroll')!;
+    const cogs = lines.find((l) => l.kind === 'cogs')!;
+    expect(pay.departmentId).toBe('d1');
+    expect(cogs.departmentId).toBe('d2');
+    expect(cogs.q.reduce((a, b) => a + b, 0)).toBeCloseTo(80_000, 6);
+  });
+
+  it('la navette du departement porteur des COGS est bien impactee', () => {
+    const applied = applyBusinessCases(twoDepts, [croise]);
+    const s1 = applied.submissions.find((s) => s.departmentId === 'd1')!;
+    const s2 = applied.submissions.find((s) => s.departmentId === 'd2')!;
+    expect(s1.lines.length).toBe(2); // socle + salaires
+    expect(s2.lines.length).toBe(2); // socle + COGS
+  });
+
+  it('le cout annuel de chaque departement augmente de ce qu il porte, sans double comptage', () => {
+    const sans = consolidate(twoDepts);
+    const avec = consolidate(applyBusinessCases(twoDepts, [croise]));
+    const d1Sans = sans.departments.find((d) => d.departmentId === 'd1')!;
+    const d1Avec = avec.departments.find((d) => d.departmentId === 'd1')!;
+    const d2Sans = sans.departments.find((d) => d.departmentId === 'd2')!;
+    const d2Avec = avec.departments.find((d) => d.departmentId === 'd2')!;
+    // salaires = 1 x 5 000 x 12 = 60 000 sur d1 ; COGS = 80 000 sur d2
+    expect(d1Avec.annualCost).toBeCloseTo(d1Sans.annualCost + 60_000, 2);
+    expect(d2Avec.annualCost).toBeCloseTo(d2Sans.annualCost + 80_000, 2);
+  });
+
+  it('sans departement de COGS designe, les COGS restent sur le departement cible', () => {
+    const lines = businessCaseLines({ ...croise, cogsDepartmentId: null });
+    expect(lines.find((l) => l.kind === 'cogs')!.departmentId).toBe('d1');
+  });
+});

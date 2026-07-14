@@ -78,6 +78,8 @@ interface CustomEdit {
   amount: string;
   /** Trimestre porteur d'un décaissement one_shot. */
   oneshotQuarter: string;
+  /** Ordre d'affichage : une ligne ajoutée passe à la suite, jamais au milieu. */
+  sort: number;
   q: [string, string, string, string];
   prevQ4: string;
 }
@@ -141,9 +143,11 @@ export default function NavettePage() {
           isNew: c.is_new,
           amount: c.amount != null ? String(c.amount) : '',
           oneshotQuarter: c.oneshot_quarter != null ? String(c.oneshot_quarter) : '1',
+          sort: Number(c.sort) || 0,
           q: [String(c.q1), String(c.q2), String(c.q3), String(c.q4)] as [string, string, string, string],
           prevQ4: c.prev_q4 != null ? String(c.prev_q4) : '',
-        })),
+        }))
+        .sort((a, b) => a.sort - b.sort),
     );
     const byDef: Record<string, EditLine> = {};
     for (const def of defs) {
@@ -170,12 +174,23 @@ export default function NavettePage() {
   // Business cases du département. Un cas ACCEPTÉ est converti en lignes libres par le
   // moteur (source de vérité unique, la même que la consolidation) : elles s'affichent
   // en lecture seule dans leur section et comptent dans les sous-totaux et le total.
-  const deptBusinessCases = (data.businessCases ?? []).filter((bc) => bc.target_department_id === effectiveDeptId);
-  const bcLines = deptBusinessCases
+  // Un business case impacte le département qui porte le projet ET celui qui porte
+  // ses COGS (dépendance inter-métiers) : les deux voient la carte et les lignes.
+  const deptBusinessCases = (data.businessCases ?? []).filter(
+    (bc) => bc.target_department_id === effectiveDeptId || bc.cogs_department_id === effectiveDeptId,
+  );
+  const bcLines = (data.businessCases ?? [])
     .filter((bc) => bc.status === 'accepted' && bc.target_department_id)
     .flatMap((bc) =>
-      businessCaseLines({ id: bc.id, label: bc.label, targetDepartmentId: bc.target_department_id!, params: bc.params }),
-    );
+      businessCaseLines({
+        id: bc.id,
+        label: bc.label,
+        targetDepartmentId: bc.target_department_id!,
+        cogsDepartmentId: bc.cogs_department_id,
+        params: bc.params,
+      }),
+    )
+    .filter((l) => l.departmentId === effectiveDeptId);
 
   /**
    * Trimestres d'une ligne libre : déduits du montant s'il est renseigné (les T1-T4
@@ -302,6 +317,7 @@ export default function NavettePage() {
         frequency: c.frequency,
         amount: c.amount.trim() === '' ? null : num(c.amount),
         oneshot_quarter: c.frequency === 'one_shot' ? Number(c.oneshotQuarter) || 1 : null,
+        sort: c.sort,
         q1: q[0],
         q2: q[1],
         q3: q[2],
@@ -333,6 +349,8 @@ export default function NavettePage() {
       let n = 2;
       while (taken.has(label)) label = `${base} ${n++}`;
       const frequency: LineFrequency = kind === 'payroll' ? 'mensuel' : 'trimestriel';
+      // La nouvelle ligne se place A LA SUITE des existantes, jamais au milieu.
+      const nextSort = customs.reduce((max, c) => Math.max(max, c.sort), -1) + 1;
       const { error } = await supabase.from('submission_custom_lines').insert({
         submission_id: latest.id,
         kind,
@@ -342,6 +360,7 @@ export default function NavettePage() {
         frequency,
         amount: null,
         oneshot_quarter: null,
+        sort: nextSort,
         q1: 0, q2: 0, q3: 0, q4: 0,
       });
       if (error) throw new Error(error.message);
@@ -886,16 +905,71 @@ export default function NavettePage() {
               <h2 className="text-lg font-semibold text-ink">Business cases proposés ({deptBusinessCases.length})</h2>
               <div className="mt-3 space-y-3">
                 {deptBusinessCases.map((bc) => {
-                  const y1 = computeBusinessCase(bc.params).years[0];
-                  const impact = (y1?.salaries ?? 0) + (y1?.otherOpex ?? 0) + (y1?.investment ?? 0);
+                  const res = computeBusinessCase(bc.params);
+                  const y1 = res.years[0];
+                  const targetName = data.departments.find((d) => d.id === bc.target_department_id)?.name ?? '-';
+                  const cogsName = data.departments.find((d) => d.id === bc.cogs_department_id)?.name ?? targetName;
+                  // Ce que CE département porte : le projet, ou seulement les COGS.
+                  const isCogsBearer = bc.cogs_department_id === effectiveDeptId && bc.target_department_id !== effectiveDeptId;
+                  const borne = isCogsBearer
+                    ? (y1?.recurringCosts ?? 0)
+                    : (y1?.salaries ?? 0) + (y1?.otherOpex ?? 0) + (y1?.investment ?? 0) +
+                      (bc.cogs_department_id && bc.cogs_department_id !== effectiveDeptId ? 0 : y1?.recurringCosts ?? 0);
                   const suffix = bc.status === 'accepted' ? ' (compté)' : bc.status === 'rejected' ? ' (écarté)' : ' (si accepté)';
                   return (
                     <div key={bc.id} className="rounded-2xl bg-white p-4 shadow-sm">
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="font-semibold text-ink">{bc.label}</span>
                         {bcStatusBadge(bc.status)}
-                        <span className="text-xs text-ink/50">Impact année 1 : {fmtKEur(impact)}{suffix}</span>
+                        {isCogsBearer && <Badge tone="peach">COGS pour {targetName}</Badge>}
+                        <span className="text-xs text-ink/50">
+                          Impact année 1 sur ce département : {fmtKEur(borne)}{suffix}
+                        </span>
                       </div>
+
+                      <details className="mt-3">
+                        <summary className="cursor-pointer text-sm font-semibold text-primary">Voir le détail du business case</summary>
+                        <div className="mt-3 text-sm text-ink/70">
+                          <p>
+                            Porté par <span className="font-semibold text-ink">{targetName}</span> ; COGS portés par{' '}
+                            <span className="font-semibold text-ink">{cogsName}</span>. VAN {fmtKEur(res.npv)}, payback{' '}
+                            {res.paybackMonths === null ? 'non atteint' : `${res.paybackMonths.toFixed(1)} mois`}, cash-flow cumulé {fmtKEur(res.totalCashFlow)}.
+                          </p>
+                          <div className="mt-3 overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                                  <th className="px-3 py-2 font-semibold">Ligne (k€)</th>
+                                  {res.years.map((y) => (<th key={y.year} className="px-3 py-2 text-right font-semibold">A{y.year}</th>))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {([
+                                  ['Revenus', (y: typeof res.years[0]) => y.revenue],
+                                  ['COGS (coûts récurrents)', (y: typeof res.years[0]) => -y.recurringCosts],
+                                  ['Salaires', (y: typeof res.years[0]) => -y.salaries],
+                                  ['Autres opex', (y: typeof res.years[0]) => -y.otherOpex],
+                                  ['Invest', (y: typeof res.years[0]) => -y.investment],
+                                  ['Cash-flow', (y: typeof res.years[0]) => y.cashFlow],
+                                ] as [string, (y: typeof res.years[0]) => number][]).map(([lbl, get]) => (
+                                  <tr key={lbl} className="border-b border-lav/60">
+                                    <td className="px-3 py-1.5">{lbl}</td>
+                                    {res.years.map((y) => {
+                                      const v = get(y);
+                                      return (
+                                        <td key={y.year} className={`px-3 py-1.5 text-right tabular-nums ${v < 0 ? 'text-red-600' : ''}`}>
+                                          {Math.round(v / 1000).toLocaleString('fr-FR')}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </details>
+
                       {canArbitrate && (
                         <div className="mt-3 flex gap-2">
                           <button onClick={() => decide(bc.id, 'accepted')} disabled={busy || bc.status === 'accepted'} className={btnPrimary}>Accepter</button>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Card, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
+import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 import { computeBusinessCase, type BusinessCaseInput, type BusinessCaseYear } from '@/lib/engine';
 import { fmtKEur, fmtMonths } from '@/lib/format';
@@ -18,7 +18,7 @@ const emptyYear = (): YearForm => ({ revenue: '', recurringCosts: '', fte: '', m
 
 const YEAR_FIELDS: { key: keyof YearForm; label: string; year1Only?: boolean }[] = [
   { key: 'revenue', label: 'Revenus (€)' },
-  { key: 'recurringCosts', label: 'Coûts récurrents (€)' },
+  { key: 'recurringCosts', label: 'COGS (€)' },
   { key: 'fte', label: 'ETP dédiés' },
   { key: 'monthlyCostPerFte', label: 'Coût mensuel / ETP (€)' },
   { key: 'otherOpex', label: 'Autres opex (€)' },
@@ -27,7 +27,7 @@ const YEAR_FIELDS: { key: keyof YearForm; label: string; year1Only?: boolean }[]
 
 const FLOW_ROWS: { label: string; solde?: boolean; get: (y: BusinessCaseYear) => number }[] = [
   { label: 'Revenus', get: (y) => y.revenue },
-  { label: 'Coûts récurrents', get: (y) => -y.recurringCosts },
+  { label: 'COGS (coûts récurrents)', get: (y) => -y.recurringCosts },
   { label: 'Salaires', get: (y) => -y.salaries },
   { label: 'Autres opex', get: (y) => -y.otherOpex },
   { label: 'Invest', get: (y) => -y.investment },
@@ -95,6 +95,7 @@ export default function BusinessCasePage() {
   const [horizon, setHorizon] = useState(3);
   const [ratePct, setRatePct] = useState('15');
   const [targetDept, setTargetDept] = useState('');
+  const [cogsDept, setCogsDept] = useState('');
   const [yrs, setYrs] = useState<YearForm[]>(() => Array.from({ length: 3 }, emptyYear));
   const [busy, setBusy] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -135,6 +136,9 @@ export default function BusinessCasePage() {
     ? targetDept || data.profile.department_id || data.departments[0]?.id || ''
     : data.profile.department_id ?? '';
   const targetName = data.departments.find((d) => d.id === effTarget)?.name ?? 'Aucun département';
+  // Les COGS du projet peuvent etre portes par un AUTRE metier (dependance inter-metiers).
+  const effCogs = isLeader ? cogsDept || effTarget : effTarget;
+  const cogsName = data.departments.find((d) => d.id === effCogs)?.name ?? targetName;
 
   function setHorizonSafe(n: number) {
     setHorizon(n);
@@ -155,13 +159,16 @@ export default function BusinessCasePage() {
         company_id: data!.company.id,
         department_id: data!.profile.department_id,
         target_department_id: effTarget || null,
+        cogs_department_id: effCogs || null,
         label: params.label,
         params,
         status: 'proposed',
         created_by: auth.user!.id,
       });
       if (e) throw new Error(e.message);
-      setSaveMsg(`Business case "${params.label}" proposé pour ${targetName || 'la société'} : à arbitrer dans sa navette.`);
+      setSaveMsg(
+        `Business case "${params.label}" proposé pour ${targetName}${effCogs !== effTarget ? `, COGS portés par ${cogsName}` : ''} : à arbitrer dans la navette.`,
+      );
     } catch (e) {
       setSaveMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -175,6 +182,57 @@ export default function BusinessCasePage() {
       <p className="mt-1 text-sm text-ink/60">
         Chiffrage d&apos;un projet d&apos;investissement : cash-flows, VAN et payback. Une fois proposé, le business case apparaît dans la navette du département cible, où il est arbitré (accepté ou rejeté). Un cas accepté alimente la consolidation.
       </p>
+
+      {/* Portefeuille des business cases : réservé au CFO et au CEO */}
+      {isLeader && (data.businessCases ?? []).length > 0 && (
+        <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
+          <h2 className="px-5 pt-5 font-semibold text-ink">Business cases de la société ({data.businessCases.length})</h2>
+          <div className="overflow-x-auto">
+            <table className="mt-3 w-full text-sm">
+              <thead>
+                <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                  <th className="px-5 py-3 font-semibold">Projet</th>
+                  <th className="px-3 py-3 font-semibold">Statut</th>
+                  <th className="px-3 py-3 font-semibold">Porté par</th>
+                  <th className="px-3 py-3 font-semibold">COGS portés par</th>
+                  <th className="px-3 py-3 text-right font-semibold">VAN</th>
+                  <th className="px-3 py-3 text-right font-semibold">Payback</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...data.businessCases]
+                  .sort((a, b) => (a.status === b.status ? 0 : a.status === 'proposed' ? -1 : 1))
+                  .map((bc) => {
+                    const r = computeBusinessCase(bc.params);
+                    const target = data.departments.find((d) => d.id === bc.target_department_id)?.name ?? '-';
+                    const cogs = data.departments.find((d) => d.id === bc.cogs_department_id)?.name ?? target;
+                    return (
+                      <tr key={bc.id} className="border-b border-lav/60 last:border-0">
+                        <td className="px-5 py-2.5 font-semibold text-ink">{bc.label}</td>
+                        <td className="px-3 py-2.5">
+                          {bc.status === 'accepted' ? (
+                            <Badge tone="accent" dot="mint">Validé</Badge>
+                          ) : bc.status === 'rejected' ? (
+                            <Badge tone="danger">Rejeté</Badge>
+                          ) : (
+                            <Badge tone="lav">En attente</Badge>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">{target}</td>
+                        <td className="px-3 py-2.5">{cogs}</td>
+                        <td className={`px-3 py-2.5 text-right tabular-nums ${r.npv < 0 ? 'text-red-600' : ''}`}>{fmtKEur(r.npv)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">{fmtMonths(r.paybackMonths)}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <p className="px-5 pb-4 pt-2 text-xs text-ink/50">
+            L&apos;arbitrage (valider ou rejeter) se fait dans la navette du département concerné.
+          </p>
+        </div>
+      )}
 
       {/* Hypothèses */}
       <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
@@ -195,6 +253,17 @@ export default function BusinessCasePage() {
                 <span className="mt-1 block text-xs text-ink/50">Votre département.</span>
               </>
             )}
+          </label>
+          <label className="text-sm">
+            <span className="font-semibold text-ink">COGS portés par</span>
+            {isLeader ? (
+              <select value={effCogs} onChange={(e) => setCogsDept(e.target.value)} className={`mt-1 block bg-white ${inputBase}`}>
+                {data.departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
+              </select>
+            ) : (
+              <input type="text" disabled readOnly value={cogsName} className={`mt-1 block w-52 ${inputBase}`} />
+            )}
+            <span className="mt-1 block text-xs text-ink/50">Le métier qui produit le service vendu.</span>
           </label>
           <label className="text-sm">
             <span className="font-semibold text-ink">Horizon</span>

@@ -76,6 +76,8 @@ export interface BusinessCaseRow {
   company_id: string;
   department_id: string | null;
   target_department_id: string | null;
+  /** Département qui porte les COGS du projet. null = le département cible. */
+  cogs_department_id: string | null;
   label: string;
   params: BusinessCaseInput;
   status: 'proposed' | 'accepted' | 'rejected';
@@ -132,6 +134,8 @@ export interface SubmissionCustomLineRow {
   amount: number | null;
   /** Trimestre porteur d'un décaissement one_shot (1 à 4). */
   oneshot_quarter: number | null;
+  /** Ordre d'affichage : une ligne ajoutée se place à la suite, jamais au milieu. */
+  sort: number;
   /** Réalisé du trimestre précédent. Non alimenté pour l'instant. */
   prev_q4: number | null;
 }
@@ -230,7 +234,7 @@ export async function loadPortalData(): Promise<PortalData> {
     supabase.from('driver_defs').select('*').order('sort'),
     supabase.from('submissions').select('*').order('version'),
     supabase.from('submission_lines').select('*'),
-    supabase.from('submission_custom_lines').select('*').order('label'),
+    supabase.from('submission_custom_lines').select('*').order('sort').order('label'),
     supabase.from('business_cases').select('*').order('created_at'),
   ]);
   const firstError =
@@ -355,6 +359,12 @@ export function buildConsolidationInputs(data: PortalData): ConsolidationInputs 
   // (salaires et opex de l'annee 1) sur leur departement cible.
   const accepted: AcceptedBusinessCase[] = (data.businessCases ?? [])
     .filter((bc) => bc.status === 'accepted' && bc.target_department_id)
-    .map((bc) => ({ id: bc.id, label: bc.label, targetDepartmentId: bc.target_department_id!, params: bc.params }));
+    .map((bc) => ({
+      id: bc.id,
+      label: bc.label,
+      targetDepartmentId: bc.target_department_id!,
+      cogsDepartmentId: bc.cogs_department_id,
+      params: bc.params,
+    }));
   return accepted.length > 0 ? applyBusinessCases(base, accepted) : base;
 }

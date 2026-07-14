@@ -60,34 +60,49 @@ export interface BusinessCaseResult {
 
 import type { ConsolidationInputs, InlineSubmissionLine, QuarterValues } from './types';
 
-/** Business case accepte a injecter dans la navette du departement cible. */
+/** Business case accepte a injecter dans les navettes qu'il impacte. */
 export interface AcceptedBusinessCase {
   id: string;
   label: string;
+  /** Departement qui porte les salaires, les autres opex et l'invest. */
   targetDepartmentId: string;
+  /**
+   * Departement qui porte les COGS (couts recurrents de production du service vendu).
+   * Souvent un AUTRE metier que le porteur du projet : c'est la dependance inter-metiers.
+   * Absent ou null = les COGS restent sur le departement cible.
+   */
+  cogsDepartmentId?: string | null;
   params: BusinessCaseInput;
 }
 
 /** Prefixe des libelles des lignes issues d'un business case (tag d'affichage). */
 export const BUSINESS_CASE_TAG = 'Business case';
 
+/** Ligne issue d'un business case : elle sait quel departement la porte. */
+export interface BusinessCaseLine extends InlineSubmissionLine {
+  departmentId: string;
+}
+
 /**
  * SOURCE DE VERITE UNIQUE : convertit un business case accepte en lignes libres
- * (inline) de l'annee 1, a AJOUTER a la navette du departement cible.
- * - salaires : ligne payroll, mensuelle, repartie en quatre trimestres egaux ;
- * - autres opex : ligne opex, mensuelle, repartie en quatre trimestres egaux ;
- * - invest one-off : ligne capex, one_shot sur le premier trimestre.
- * Le meme resultat alimente la consolidation ET l'affichage de la navette : aucun
+ * (inline) de l'annee 1, a AJOUTER aux navettes des departements qu'il impacte.
+ * - salaires : payroll mensuel sur le departement cible ;
+ * - autres opex : opex mensuel sur le departement cible ;
+ * - invest one-off : capex one_shot au T1 sur le departement cible ;
+ * - couts recurrents : COGS mensuels, portes par le departement designe (souvent un
+ *   autre metier : c'est la dependance inter-metiers du projet).
+ * Le meme resultat alimente la consolidation ET l'affichage des navettes : aucun
  * autre mecanisme d'injection n'existe, donc aucun double comptage possible.
  */
-export function businessCaseLines(bc: AcceptedBusinessCase): InlineSubmissionLine[] {
+export function businessCaseLines(bc: AcceptedBusinessCase): BusinessCaseLine[] {
   const y1 = computeBusinessCase(bc.params).years[0];
   if (!y1) return [];
   const spread = (annual: number): QuarterValues => [annual / 4, annual / 4, annual / 4, annual / 4];
-  const lines: InlineSubmissionLine[] = [];
+  const lines: BusinessCaseLine[] = [];
   if (y1.salaries > 0) {
     lines.push({
       id: `bc-${bc.id}-pay`,
+      departmentId: bc.targetDepartmentId,
       kind: 'payroll',
       label: `${BUSINESS_CASE_TAG} : ${bc.label} (salaires)`,
       frequency: 'mensuel',
@@ -97,6 +112,7 @@ export function businessCaseLines(bc: AcceptedBusinessCase): InlineSubmissionLin
   if (y1.otherOpex > 0) {
     lines.push({
       id: `bc-${bc.id}-opex`,
+      departmentId: bc.targetDepartmentId,
       kind: 'opex',
       label: `${BUSINESS_CASE_TAG} : ${bc.label} (opex)`,
       frequency: 'mensuel',
@@ -106,27 +122,41 @@ export function businessCaseLines(bc: AcceptedBusinessCase): InlineSubmissionLin
   if (y1.investment > 0) {
     lines.push({
       id: `bc-${bc.id}-capex`,
+      departmentId: bc.targetDepartmentId,
       kind: 'capex',
       label: `${BUSINESS_CASE_TAG} : ${bc.label} (investissement)`,
       frequency: 'one_shot',
       q: [y1.investment, 0, 0, 0],
     });
   }
+  if (y1.recurringCosts > 0) {
+    lines.push({
+      id: `bc-${bc.id}-cogs`,
+      departmentId: bc.cogsDepartmentId ?? bc.targetDepartmentId,
+      kind: 'cogs',
+      label: `${BUSINESS_CASE_TAG} : ${bc.label} (COGS)`,
+      frequency: 'mensuel',
+      q: spread(y1.recurringCosts),
+    });
+  }
   return lines;
 }
 
 /**
- * Injecte les business cases acceptes dans des entrees de consolidation : leurs lignes
- * s'AJOUTENT a la navette du departement cible, comme n'importe quelle ligne libre.
- * Fonction pure, sans effet de bord sur `inputs`. Aucun driver synthetique n'est cree :
- * le referentiel reste intact. Sans effet si le departement cible n'a pas de navette.
+ * Injecte les business cases acceptes dans des entrees de consolidation : chaque ligne
+ * s'AJOUTE a la navette du departement QUI LA PORTE (les COGS peuvent donc atterrir sur
+ * un autre metier que le porteur du projet). Fonction pure, sans effet de bord.
+ * Aucun driver synthetique n'est cree : le referentiel reste intact.
  */
 export function applyBusinessCases(inputs: ConsolidationInputs, cases: AcceptedBusinessCase[]): ConsolidationInputs {
   const submissions = inputs.submissions.map((s) => ({ ...s, lines: [...s.lines] }));
   for (const bc of cases) {
-    const sub = submissions.find((s) => s.departmentId === bc.targetDepartmentId);
-    if (!sub) continue;
-    sub.lines.push(...businessCaseLines(bc));
+    for (const line of businessCaseLines(bc)) {
+      const sub = submissions.find((s) => s.departmentId === line.departmentId);
+      if (!sub) continue; // departement sans navette : rien a impacter
+      const { departmentId: _dept, ...inlineLine } = line;
+      sub.lines.push(inlineLine);
+    }
   }
   return { ...inputs, submissions };
 }

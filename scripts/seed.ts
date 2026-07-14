@@ -201,13 +201,14 @@ async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
 
     // Lignes libres du metier (postes nominatifs, outils nommes).
     if (sub.customLines && sub.customLines.length > 0) {
-      const customRows = sub.customLines.map((c) => ({
+      const customRows = sub.customLines.map((c, i) => ({
         submission_id: data.id,
         kind: c.kind,
         label: c.label,
         is_new: c.isNew,
         vendor: c.vendor ?? null,
         frequency: c.frequency,
+        sort: i, // ordre d'affichage : les ajouts ulterieurs passent a la suite
         q1: c.q[0],
         q2: c.q[1],
         q3: c.q[2],
@@ -263,6 +264,7 @@ async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
         company_id: company.id,
         department_id: null,
         target_department_id: deptIds.get(bc.targetDepartmentId)!,
+        cogs_department_id: bc.cogsDepartmentId ? deptIds.get(bc.cogsDepartmentId)! : null,
         label: bc.label,
         params: bc.params,
         status: 'proposed',
