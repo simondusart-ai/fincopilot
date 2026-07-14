@@ -189,10 +189,23 @@ describe('applyBusinessCases : les COGS creent une dependance inter-metiers', ()
     driverDefs: [
       { id: 'p1', departmentId: 'd1', code: 'P1', label: 'Salaires', kind: 'payroll' },
       { id: 'p2', departmentId: 'd2', code: 'P2', label: 'Salaires Ops', kind: 'payroll' },
+      // La societe declare ses COGS, comme FinCopilot et Hexafloor. Sans cette ligne,
+      // ajouter des COGS via un business case ferait basculer TOUTE la marge brute du
+      // taux forfaitaire de la config au calcul reel : un fixture sans COGS serait
+      // irrealiste et masquerait la vraie mesure de l'impact du projet.
+      { id: 'c2', departmentId: 'd2', code: 'C2', label: 'COGS de production', kind: 'cogs' },
     ],
     submissions: [
       { departmentId: 'd1', version: 1, status: 'submitted', lines: [{ driverDefId: 'p1', q: [10_000, 10_000, 10_000, 10_000] }] },
-      { departmentId: 'd2', version: 1, status: 'submitted', lines: [{ driverDefId: 'p2', q: [10_000, 10_000, 10_000, 10_000] }] },
+      {
+        departmentId: 'd2',
+        version: 1,
+        status: 'submitted',
+        lines: [
+          { driverDefId: 'p2', q: [10_000, 10_000, 10_000, 10_000] },
+          { driverDefId: 'c2', q: [5_000, 5_000, 5_000, 5_000] },
+        ],
+      },
     ],
   };
 
@@ -223,8 +236,10 @@ describe('applyBusinessCases : les COGS creent une dependance inter-metiers', ()
     const applied = applyBusinessCases(twoDepts, [croise]);
     const s1 = applied.submissions.find((s) => s.departmentId === 'd1')!;
     const s2 = applied.submissions.find((s) => s.departmentId === 'd2')!;
-    expect(s1.lines.length).toBe(2); // socle + salaires
-    expect(s2.lines.length).toBe(2); // socle + COGS
+    expect(s1.lines.length).toBe(2); // 1 ligne de socle + les salaires du projet
+    expect(s2.lines.length).toBe(3); // 2 lignes de socle + les COGS du projet
+    // La ligne ajoutee a d2 est bien celle des COGS du business case.
+    expect(s2.lines.some((l) => 'kind' in l && l.kind === 'cogs' && l.label.includes('Offre CGP'))).toBe(true);
   });
 
   it('le cout annuel de chaque departement augmente de ce qu il porte, sans double comptage', () => {
@@ -242,5 +257,52 @@ describe('applyBusinessCases : les COGS creent une dependance inter-metiers', ()
   it('sans departement de COGS designe, les COGS restent sur le departement cible', () => {
     const lines = businessCaseLines({ ...croise, cogsDepartmentId: null });
     expect(lines.find((l) => l.kind === 'cogs')!.departmentId).toBe('d1');
+  });
+
+  describe('les revenus du business case montent le P&L', () => {
+    // Projet complet : revenus, COGS chez l'autre metier, salaires, opex, invest.
+    const complet: AcceptedBusinessCase = {
+      id: 'bc3',
+      label: 'Offre complete',
+      targetDepartmentId: 'd1',
+      cogsDepartmentId: 'd2',
+      params: {
+        label: 'Offre complete',
+        horizonYears: 1,
+        discountRate: 0.15,
+        years: [{ revenue: 300_000, recurringCosts: 80_000, fte: 1, monthlyCostPerFte: 5_000, otherOpex: 20_000, investment: 25_000 }],
+      },
+    };
+    // salaires = 60 000 ; opex = 20 000 ; COGS = 80 000 ; invest = 25 000 ; revenus = 300 000
+    const y1 = computeBusinessCase(complet.params).years[0];
+    const sans = consolidate(twoDepts);
+    const avec = consolidate(applyBusinessCases(twoDepts, [complet]));
+
+    it('produit une ligne de revenus sur le departement porteur du projet', () => {
+      const rev = businessCaseLines(complet).find((l) => l.kind === 'revenue_other')!;
+      expect(rev.departmentId).toBe('d1');
+      expect(rev.q.reduce((a, b) => a + b, 0)).toBeCloseTo(300_000, 6);
+    });
+
+    it('le revenu annuel consolide augmente exactement des revenus de l annee 1', () => {
+      expect(avec.totals!.revenue).toBeCloseTo(sans.totals!.revenue + 300_000, 2);
+    });
+
+    it('l EBITDA monte du revenu, moins les COGS, les salaires et les opex (le capex en est exclu)', () => {
+      expect(avec.totals!.ebitda).toBeCloseTo(sans.totals!.ebitda + 300_000 - 80_000 - 60_000 - 20_000, 2);
+    });
+
+    it('la tresorerie de fin d annee bouge exactement du cash-flow annee 1 du business case', () => {
+      expect(y1.cashFlow).toBeCloseTo(300_000 - 80_000 - 60_000 - 20_000 - 25_000, 2);
+      expect(avec.totals!.endCash).toBeCloseTo(sans.totals!.endCash + y1.cashFlow, 2);
+    });
+
+    it('les revenus ne gonflent ni le MRR de fin d annee ni le cout du departement', () => {
+      expect(avec.totals!.mrrEnd).toBeCloseTo(sans.totals!.mrrEnd, 2);
+      const d1Sans = sans.departments.find((d) => d.departmentId === 'd1')!;
+      const d1Avec = avec.departments.find((d) => d.departmentId === 'd1')!;
+      // Le departement porte ses COUTS (salaires + opex + invest), pas ses revenus.
+      expect(d1Avec.annualCost).toBeCloseTo(d1Sans.annualCost + 60_000 + 20_000 + 25_000, 2);
+    });
   });
 });

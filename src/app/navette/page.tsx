@@ -911,10 +911,13 @@ export default function NavettePage() {
                   const cogsName = data.departments.find((d) => d.id === bc.cogs_department_id)?.name ?? targetName;
                   // Ce que CE département porte : le projet, ou seulement les COGS.
                   const isCogsBearer = bc.cogs_department_id === effectiveDeptId && bc.target_department_id !== effectiveDeptId;
-                  const borne = isCogsBearer
+                  // Ce que CE département porte : soit les COGS seuls, soit le projet
+                  // (revenus d'un côté, coûts de l'autre : un projet n'est pas que du coût).
+                  const cogsIci = !bc.cogs_department_id || bc.cogs_department_id === effectiveDeptId ? y1?.recurringCosts ?? 0 : 0;
+                  const coutsPortes = isCogsBearer
                     ? (y1?.recurringCosts ?? 0)
-                    : (y1?.salaries ?? 0) + (y1?.otherOpex ?? 0) + (y1?.investment ?? 0) +
-                      (bc.cogs_department_id && bc.cogs_department_id !== effectiveDeptId ? 0 : y1?.recurringCosts ?? 0);
+                    : (y1?.salaries ?? 0) + (y1?.otherOpex ?? 0) + (y1?.investment ?? 0) + cogsIci;
+                  const revenusPortes = isCogsBearer ? 0 : y1?.revenue ?? 0;
                   const suffix = bc.status === 'accepted' ? ' (compté)' : bc.status === 'rejected' ? ' (écarté)' : ' (si accepté)';
                   return (
                     <div key={bc.id} className="rounded-2xl bg-white p-4 shadow-sm">
@@ -923,7 +926,7 @@ export default function NavettePage() {
                         {bcStatusBadge(bc.status)}
                         {isCogsBearer && <Badge tone="peach">COGS pour {targetName}</Badge>}
                         <span className="text-xs text-ink/50">
-                          Impact année 1 sur ce département : {fmtKEur(borne)}{suffix}
+                          Année 1 sur ce département :{revenusPortes > 0 ? ` revenus ${fmtKEur(revenusPortes)},` : ''} coûts {fmtKEur(coutsPortes)}{suffix}
                         </span>
                       </div>
 

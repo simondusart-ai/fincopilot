@@ -86,11 +86,16 @@ export interface BusinessCaseLine extends InlineSubmissionLine {
 /**
  * SOURCE DE VERITE UNIQUE : convertit un business case accepte en lignes libres
  * (inline) de l'annee 1, a AJOUTER aux navettes des departements qu'il impacte.
+ * - revenus : revenus non recurrents sur le departement cible (ils montent le P&L) ;
  * - salaires : payroll mensuel sur le departement cible ;
  * - autres opex : opex mensuel sur le departement cible ;
  * - invest one-off : capex one_shot au T1 sur le departement cible ;
  * - couts recurrents : COGS mensuels, portes par le departement designe (souvent un
  *   autre metier : c'est la dependance inter-metiers du projet).
+ *
+ * Propriete garantie : la tresorerie de fin d'annee bouge exactement du cash-flow de
+ * l'annee 1 du business case (revenus - COGS - salaires - opex - invest).
+ *
  * Le meme resultat alimente la consolidation ET l'affichage des navettes : aucun
  * autre mecanisme d'injection n'existe, donc aucun double comptage possible.
  */
@@ -99,6 +104,18 @@ export function businessCaseLines(bc: AcceptedBusinessCase): BusinessCaseLine[] 
   if (!y1) return [];
   const spread = (annual: number): QuarterValues => [annual / 4, annual / 4, annual / 4, annual / 4];
   const lines: BusinessCaseLine[] = [];
+  if (y1.revenue > 0) {
+    // Revenus non recurrents : le P&L de l'annee monte du montant chiffre dans le
+    // business case, sans gonfler artificiellement le MRR ni le NRR (voir DOCUMENTATION).
+    lines.push({
+      id: `bc-${bc.id}-rev`,
+      departmentId: bc.targetDepartmentId,
+      kind: 'revenue_other',
+      label: `${BUSINESS_CASE_TAG} : ${bc.label} (revenus)`,
+      frequency: 'mensuel',
+      q: spread(y1.revenue),
+    });
+  }
   if (y1.salaries > 0) {
     lines.push({
       id: `bc-${bc.id}-pay`,
