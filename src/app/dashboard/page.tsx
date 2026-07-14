@@ -1,13 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, usePortalData } from '@/components/shell';
 import { MonthlyChart } from '@/components/monthly-chart';
 import { NavetteStatusCard } from '@/components/navette-status-card';
 import { getSupabase } from '@/lib/supabase';
-import { buildConsolidationInputs } from '@/lib/data';
-import type { BudgetMode, SubmissionRow } from '@/lib/data';
-import { consolidate } from '@/lib/engine';
+import { buildConsolidationInputs, loadActuals } from '@/lib/data';
+import type { ActualsData, BudgetMode, SubmissionRow } from '@/lib/data';
+import { consolidate, projectBaseline } from '@/lib/engine';
 import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths, fmtPct } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
 
@@ -26,8 +26,43 @@ export default function DashboardPage() {
   const [busy, setBusy] = useState(false);
   const [cycleMsg, setCycleMsg] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
+  const [actuals, setActuals] = useState<ActualsData | null>(null);
 
   const result = useMemo(() => (data ? consolidate(buildConsolidationInputs(data)) : null), [data]);
+
+  // Historique annuel : sert au scénario de reconduction (le P&L si on ne fait rien).
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    loadActuals()
+      .then((a) => { if (!cancelled) setActuals(a); })
+      .catch(() => { if (!cancelled) setActuals(null); });
+    return () => { cancelled = true; };
+  }, [data]);
+
+  const baseline = useMemo(() => {
+    if (!data || !actuals) return null;
+    const prevYear = data.company.budget_year - 1;
+    const pnl = actuals.pnlYears.find((y) => y.year === prevYear);
+    if (!pnl) return null;
+    const prevYearRevenue = Number(pnl.revenue);
+    // Structure Annexe A : l'EBITDA de N-1 est le revenu moins ces quatre postes.
+    const prevYearTotalCosts =
+      Number(pnl.sm) + Number(pnl.tech_product) + Number(pnl.payroll_other) + Number(pnl.ga);
+    return {
+      prevYear,
+      prevYearRevenue,
+      prevYearEbitda: prevYearRevenue - prevYearTotalCosts,
+      res: projectBaseline({
+        openingMrr: Number(data.company.opening_mrr),
+        monthlyChurnPct: Number(data.company.monthly_churn_pct),
+        grossMarginPct: Number(data.company.gross_margin_pct),
+        openingCash: Number(data.company.opening_cash),
+        prevYearRevenue,
+        prevYearTotalCosts,
+      }),
+    };
+  }, [data, actuals]);
 
   if (loading) return <Page data={null}><Loading /></Page>;
   if (error || !data || !result) return <Page data={null}><ErrorBox message={error ?? 'Erreur inconnue.'} /></Page>;
@@ -229,6 +264,112 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* Scénario de reconduction : le P&L si aucune action n'est prise */}
+      {baseline && (
+        <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="px-5 pt-5">
+            <h2 className="font-semibold text-ink">Scénario de reconduction : si on ne fait rien</h2>
+            <p className="mt-1 text-sm text-ink/60">
+              Projection du P&amp;L {data.company.budget_year} sans aucune navette : aucun nouveau client, aucune expansion,
+              aucun recrutement. Le MRR de fin {baseline.prevYear} s&apos;érode du churn, la marge brute reste au taux de
+              cadrage, et le socle de coûts fixes de {baseline.prevYear} est reconduit.
+            </p>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-4 px-5 lg:grid-cols-5">
+            <Card title="MRR fin d'année" value={fmtKEur(baseline.res.totals.mrrEnd)} tone="bad" hint="Érodé par le churn" />
+            <Card title="Revenu" value={fmtKEur(baseline.res.totals.revenue)} />
+            <Card
+              title="EBITDA"
+              value={fmtKEur(baseline.res.totals.ebitda)}
+              tone={baseline.res.totals.ebitda < 0 ? 'bad' : 'default'}
+              hint={`${baseline.prevYear} réalisé : ${fmtKEur(baseline.prevYearEbitda)}`}
+            />
+            <Card
+              title="Trésorerie fin d'année"
+              value={fmtKEur(baseline.res.totals.endCash)}
+              tone={baseline.res.totals.endCash < 0 ? 'bad' : 'default'}
+            />
+            <Card
+              title="Runway"
+              value={fmtMonths(baseline.res.totals.minRunway)}
+              tone={
+                baseline.res.totals.minRunway !== null &&
+                baseline.res.totals.minRunway < Number(data.company.runway_freeze_months)
+                  ? 'bad'
+                  : 'default'
+              }
+            />
+          </div>
+
+          {/* Ce que le budget apporte face a l'inaction : le chiffre qui justifie la campagne. */}
+          {result.ok && (
+            <div className="mx-5 mt-4 rounded-xl bg-card-soft px-4 py-3 text-sm text-ink">
+              Le budget soumis apporte{' '}
+              <span className="font-semibold tabular-nums">
+                {result.totals!.ebitda - baseline.res.totals.ebitda >= 0 ? '+' : ''}
+                {fmtKEur(result.totals!.ebitda - baseline.res.totals.ebitda)}
+              </span>{' '}
+              d&apos;EBITDA et{' '}
+              <span className="font-semibold tabular-nums">
+                {result.totals!.endCash - baseline.res.totals.endCash >= 0 ? '+' : ''}
+                {fmtKEur(result.totals!.endCash - baseline.res.totals.endCash)}
+              </span>{' '}
+              de trésorerie de fin d&apos;année, face à l&apos;inaction.
+            </div>
+          )}
+
+          <details className="px-5 pb-5 pt-4">
+            <summary className="cursor-pointer text-sm font-semibold text-primary">Voir le détail mensuel</summary>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full whitespace-nowrap text-sm">
+                <thead>
+                  <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                    <th className="sticky left-0 z-10 bg-white px-3 py-3 font-semibold">Ligne (k€)</th>
+                    {MONTH_LABELS.map((m) => (<th key={m} className="px-3 py-3 text-right font-semibold">{m}</th>))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {([
+                    ['MRR fin de mois', (i: number) => baseline.res.months[i].mrrEnd, false],
+                    ['Revenu', (i: number) => baseline.res.months[i].revenue, false],
+                    ['Marge brute', (i: number) => baseline.res.months[i].grossMargin, false],
+                    ['Coûts fixes reconduits', (i: number) => -baseline.res.months[i].fixedCosts, false],
+                    ['EBITDA', (i: number) => baseline.res.months[i].ebitda, true],
+                    ['Trésorerie', (i: number) => baseline.res.months[i].cash, true],
+                  ] as Array<[string, (i: number) => number, boolean]>).map(([label, fn, strong]) => (
+                    <tr key={label} className={strong ? 'bg-lav' : 'border-b border-lav/60'}>
+                      <td className={`sticky left-0 z-10 px-3 py-1.5 ${strong ? 'bg-lav font-semibold' : 'bg-white'}`}>{label}</td>
+                      {MONTH_LABELS.map((_, i) => {
+                        const v = fn(i);
+                        return (
+                          <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${v < 0 ? 'text-red-600' : ''} ${strong ? 'font-semibold' : ''}`}>
+                            {Math.round(v / 1000).toLocaleString('fr-FR')}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  <tr>
+                    <td className="sticky left-0 z-10 bg-white px-3 py-1.5 italic text-ink/50">Runway (mois)</td>
+                    {baseline.res.months.map((r) => (
+                      <td key={r.month} className="px-3 py-1.5 text-right italic tabular-nums text-ink/50">
+                        {r.runwayMonths === null ? 'n.a.' : r.runwayMonths.toFixed(1)}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-3 text-xs text-ink/50">
+              Le socle fixe reconduit ({fmtKEur(baseline.res.annualFixedCosts)}) est calibré sur {baseline.prevYear} :
+              coûts totaux moins les coûts variables impliqués par le taux de marge. Sans cette calibration, reconduire
+              les coûts tout en appliquant une marge brute compterait deux fois les coûts variables.
+            </p>
+          </details>
+        </div>
+      )}
 
       {/* Contrôles bloquants : le moteur refuse de consolider */}
       {!result.ok ? (

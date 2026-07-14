@@ -3,6 +3,8 @@ export { monthlyizeFlow, monthlyizeLevel, monthlyizeByFrequency, quartersFromAmo
 export { validateInputs } from './validate';
 export { consolidate, fmtK } from './consolidate';
 export { diffSubmissions } from './diff';
+export { projectBaseline, reconductedFixedCosts } from './baseline';
+export type { BaselineParams, BaselineMonth, BaselineResult } from './baseline';
 export { computeActuals } from './actuals';
 export type {
   ActualsParams,
