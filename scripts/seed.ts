@@ -38,6 +38,19 @@ async function wipeCompany(seed: SeedCompany) {
   const { data: companies, error } = await sb.from('companies').select('id').eq('name', seed.config.name);
   if (error) throw new Error(error.message);
   for (const c of companies ?? []) {
+    // Ordre de suppression : les contraintes on delete restrict (submission_lines vers
+    // driver_defs, driver_defs vers channels) interdisent de tout effacer par la seule
+    // cascade de la societe. On retire d'abord les navettes (cascade sur submission_lines)
+    // puis les drivers, avant de supprimer la societe (cascade sur le reste).
+    const { data: depts, error: dErr } = await sb.from('departments').select('id').eq('company_id', c.id);
+    if (dErr) throw new Error(dErr.message);
+    const deptIds = (depts ?? []).map((d) => d.id);
+    if (deptIds.length > 0) {
+      const { error: sErr } = await sb.from('submissions').delete().in('department_id', deptIds);
+      if (sErr) throw new Error(sErr.message);
+      const { error: ddErr } = await sb.from('driver_defs').delete().in('department_id', deptIds);
+      if (ddErr) throw new Error(ddErr.message);
+    }
     const { error: delErr } = await sb.from('companies').delete().eq('id', c.id);
     if (delErr) throw new Error(delErr.message);
   }
