@@ -8,6 +8,15 @@ import { consolidate } from '@/lib/engine';
 import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths, fmtPct } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
 
+// Ligne de tableau mensuel : 'line' = détail, 'solde' = ligne surlignée (fond lavande),
+// 'pct' = sous-ligne grise en pourcentage. Les % sont dérivés des sorties du moteur.
+type RowKind = 'line' | 'solde' | 'pct';
+interface PnlRow {
+  label: string;
+  kind: RowKind;
+  fn: (m: number) => number;
+}
+
 export default function DashboardPage() {
   const { data, error, loading } = usePortalData();
   const [exportMsg, setExportMsg] = useState<string | null>(null);
@@ -18,6 +27,37 @@ export default function DashboardPage() {
   if (error || !data || !result) return <Page data={null}><ErrorBox message={error ?? 'Erreur inconnue.'} /></Page>;
 
   const latest = latestSubmittedByDept(data.submissions);
+  const M = result.months;
+
+  // Tableau P&L : détails, lignes de solde surlignées et sous-lignes de marge en %.
+  const pnlRows: PnlRow[] = [
+    { label: 'MRR fin de mois', kind: 'line', fn: (m) => M[m].mrrEnd },
+    { label: 'Revenus non récurrents', kind: 'line', fn: (m) => M[m].otherRevenue },
+    { label: 'Revenu', kind: 'line', fn: (m) => M[m].revenue },
+    { label: 'COGS', kind: 'line', fn: (m) => -M[m].cogsTotal },
+    { label: 'Marge brute', kind: 'solde', fn: (m) => M[m].grossMargin },
+    { label: 'Marge brute (%)', kind: 'pct', fn: (m) => (M[m].revenue ? (M[m].revenue - M[m].cogsTotal) / M[m].revenue : NaN) },
+    { label: 'Coûts S&M', kind: 'line', fn: (m) => -M[m].smSpend },
+    { label: 'Marge de contribution', kind: 'solde', fn: (m) => M[m].contributionMargin },
+    { label: 'Marge de contribution (%)', kind: 'pct', fn: (m) => (M[m].contributionMarginPct ?? NaN) },
+    { label: 'Salaires', kind: 'line', fn: (m) => -M[m].payrollTotal },
+    { label: 'Autres opex', kind: 'line', fn: (m) => -M[m].opexTotal },
+    { label: 'EBITDA', kind: 'solde', fn: (m) => M[m].ebitda },
+    { label: 'Marge sur EBITDA (%)', kind: 'pct', fn: (m) => (M[m].revenue ? M[m].ebitda / M[m].revenue : NaN) },
+  ];
+
+  // Pivot des CAC par canal : canaux en lignes, trimestres en colonnes.
+  const channelOrder: { id: string; name: string; cap: number | null }[] = [];
+  const seenChannel = new Set<string>();
+  for (const cq of result.channelQuarters) {
+    if (!seenChannel.has(cq.channelId)) {
+      seenChannel.add(cq.channelId);
+      channelOrder.push({ id: cq.channelId, name: cq.name, cap: cq.cacCap });
+    }
+  }
+  const cacCell = (id: string, q: number) => result.channelQuarters.find((c) => c.channelId === id && c.quarter === q) ?? null;
+
+  const pctCell = (v: number) => (Number.isFinite(v) ? fmtPct(v) : 'n.a.');
 
   return (
     <Page data={data}>
@@ -25,7 +65,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-ink">Consolidation budget {data.company.budget_year}</h1>
           <p className="mt-1 text-sm text-ink/60">
-            Recalculée en direct à partir des dernières navettes soumises. Moteur déterministe et testé.
+            Recalculée en direct à partir des dernières navettes soumises.
           </p>
         </div>
         {result.ok && (
@@ -97,7 +137,7 @@ export default function DashboardPage() {
               tone={result.totals!.endCash < 0 ? 'bad' : 'default'}
             />
             <Card
-              title="Runway minimum"
+              title="Runway"
               value={fmtMonths(result.totals!.minRunway)}
               hint={`Seuils : vigilance ${data.company.runway_vigilance_months} mois, gel ${data.company.runway_freeze_months} mois`}
               tone={
@@ -134,9 +174,9 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Graphique EBITDA mensuel et trésorerie (présentationnel, alimenté par result.months) */}
+          {/* Graphique EBITDA mensuel et solde de trésorerie (présentationnel) */}
           <div className="mt-8 rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="font-semibold text-ink">EBITDA mensuel et trésorerie {data.company.budget_year}</h2>
+            <h2 className="font-semibold text-ink">EBITDA mensuel et solde de trésorerie {data.company.budget_year}</h2>
             <MonthlyChart months={result.months} />
           </div>
 
@@ -189,44 +229,62 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {([
-                    ['MRR fin de mois', (m: number) => result.months[m].mrrEnd, false],
-                    ['Revenus non récurrents', (m: number) => result.months[m].otherRevenue, false],
-                    ['Revenu', (m: number) => result.months[m].revenue, false],
-                    ['COGS', (m: number) => -result.months[m].cogsTotal, false],
-                    ['Marge brute', (m: number) => result.months[m].grossMargin, false],
-                    ['Coûts S&M', (m: number) => -result.months[m].smSpend, false],
-                    ['Marge de contribution', (m: number) => result.months[m].contributionMargin, true],
-                    ['Salaires', (m: number) => -result.months[m].payrollTotal, false],
-                    ['Autres opex', (m: number) => -result.months[m].opexTotal, false],
-                    ['EBITDA', (m: number) => result.months[m].ebitda, true],
-                    ['Trésorerie', (m: number) => result.months[m].cash, true],
-                  ] as Array<[string, (m: number) => number, boolean]>).map(([label, fn, strong]) => (
-                    <tr key={label} className={strong ? 'bg-lav' : 'border-b border-lav/60'}>
-                      <td className={`sticky left-0 z-10 px-5 py-1.5 ${strong ? 'bg-lav font-semibold' : 'bg-white'}`}>{label}</td>
-                      {MONTH_LABELS.map((_, m) => {
-                        const v = fn(m);
-                        return (
-                          <td key={m} className={`px-3 py-1.5 text-right tabular-nums ${v < 0 ? 'text-red-600' : ''} ${strong ? 'font-semibold' : ''}`}>
-                            {Math.round(v / 1000).toLocaleString('fr-FR')}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                  <tr className="border-t border-lav">
-                    <td className="sticky left-0 z-10 bg-white px-5 py-1.5 italic text-ink/50">Runway (mois)</td>
-                    {result.months.map((r) => (
-                      <td key={r.month} className="px-3 py-1.5 text-right italic tabular-nums text-ink/50">
-                        {r.runwayMonths === null ? 'n.a.' : r.runwayMonths.toFixed(1)}
+                  {pnlRows.map(({ label, kind, fn }) => {
+                    if (kind === 'pct') {
+                      return (
+                        <tr key={label} className="border-b border-lav/60">
+                          <td className="sticky left-0 z-10 bg-white px-5 py-1 italic text-ink/50">{label}</td>
+                          {MONTH_LABELS.map((_, m) => (
+                            <td key={m} className="px-3 py-1 text-right italic tabular-nums text-ink/50">{pctCell(fn(m))}</td>
+                          ))}
+                        </tr>
+                      );
+                    }
+                    const strong = kind === 'solde';
+                    return (
+                      <tr key={label} className={strong ? 'bg-lav' : 'border-b border-lav/60'}>
+                        <td className={`sticky left-0 z-10 px-5 py-1.5 ${strong ? 'bg-lav font-semibold' : 'bg-white'}`}>{label}</td>
+                        {MONTH_LABELS.map((_, m) => {
+                          const v = fn(m);
+                          return (
+                            <td key={m} className={`px-3 py-1.5 text-right tabular-nums ${v < 0 ? 'text-red-600' : ''} ${strong ? 'font-semibold' : ''}`}>
+                              {Math.round(v / 1000).toLocaleString('fr-FR')}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Trésorerie et runway */}
+          <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
+            <h2 className="px-5 pt-5 font-semibold text-ink">Trésorerie et runway</h2>
+            <div className="overflow-x-auto">
+              <table className="mt-3 w-full whitespace-nowrap text-sm">
+                <thead>
+                  <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                    <th className="sticky left-0 z-10 bg-white px-5 py-3 font-semibold">Ligne</th>
+                    {MONTH_LABELS.map((m) => (<th key={m} className="px-3 py-3 text-right font-semibold">{m}</th>))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="bg-lav">
+                    <td className="sticky left-0 z-10 bg-lav px-5 py-1.5 font-semibold">Solde de trésorerie fin de période (k€)</td>
+                    {M.map((r) => (
+                      <td key={r.month} className={`px-3 py-1.5 text-right font-semibold tabular-nums ${r.cash < 0 ? 'text-red-600' : ''}`}>
+                        {Math.round(r.cash / 1000).toLocaleString('fr-FR')}
                       </td>
                     ))}
                   </tr>
-                  <tr>
-                    <td className="sticky left-0 z-10 bg-white px-5 py-1.5 italic text-ink/50">Marge de contribution (% CA)</td>
-                    {result.months.map((r) => (
-                      <td key={r.month} className="px-3 py-1.5 text-right italic tabular-nums text-ink/50">
-                        {r.contributionMarginPct === null ? 'n.a.' : fmtPct(r.contributionMarginPct)}
+                  <tr className="border-b border-lav/60">
+                    <td className="sticky left-0 z-10 bg-white px-5 py-1 italic text-ink/50">Runway (mois)</td>
+                    {M.map((r) => (
+                      <td key={r.month} className="px-3 py-1 text-right italic tabular-nums text-ink/50">
+                        {r.runwayMonths === null ? 'n.a.' : r.runwayMonths.toFixed(1)}
                       </td>
                     ))}
                   </tr>
@@ -235,8 +293,8 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* CAC par canal */}
-          {result.channelQuarters.length > 0 && (
+          {/* CAC par canal : trimestres en colonnes */}
+          {channelOrder.length > 0 && (
             <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
               <h2 className="px-5 pt-5 font-semibold text-ink">CAC par canal et par trimestre</h2>
               <div className="overflow-x-auto">
@@ -244,29 +302,26 @@ export default function DashboardPage() {
                   <thead>
                     <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
                       <th className="px-5 py-3 font-semibold">Canal</th>
-                      <th className="px-5 py-3 text-right font-semibold">Trimestre</th>
-                      <th className="px-5 py-3 text-right font-semibold">Dépenses</th>
-                      <th className="px-5 py-3 text-right font-semibold">Nouveaux clients</th>
-                      <th className="px-5 py-3 text-right font-semibold">CAC</th>
                       <th className="px-5 py-3 text-right font-semibold">Plafond</th>
+                      {[1, 2, 3, 4].map((q) => (<th key={q} className="px-5 py-3 text-right font-semibold">T{q}</th>))}
                     </tr>
                   </thead>
                   <tbody>
-                    {result.channelQuarters.map((c, i) => {
-                      const above = c.cac !== null && c.cacCap !== null && c.cac > c.cacCap;
-                      return (
-                        <tr key={i} className="border-b border-lav/60 last:border-0">
-                          <td className="px-5 py-1.5">{c.name}</td>
-                          <td className="px-5 py-1.5 text-right tabular-nums">T{c.quarter}</td>
-                          <td className="px-5 py-1.5 text-right tabular-nums">{fmtKEur(c.spend)}</td>
-                          <td className="px-5 py-1.5 text-right tabular-nums">{c.newCustomers.toLocaleString('fr-FR')}</td>
-                          <td className={`px-5 py-1.5 text-right tabular-nums ${above ? 'font-semibold text-red-600' : ''}`}>
-                            {c.cac === null ? 'n.a.' : fmtEur(c.cac)}
-                          </td>
-                          <td className="px-5 py-1.5 text-right tabular-nums">{c.cacCap === null ? '-' : fmtEur(c.cacCap)}</td>
-                        </tr>
-                      );
-                    })}
+                    {channelOrder.map((ch) => (
+                      <tr key={ch.id} className="border-b border-lav/60 last:border-0">
+                        <td className="px-5 py-2 font-semibold text-ink">{ch.name}</td>
+                        <td className="px-5 py-2 text-right tabular-nums text-ink/60">{ch.cap === null ? '-' : fmtEur(ch.cap)}</td>
+                        {[1, 2, 3, 4].map((q) => {
+                          const cell = cacCell(ch.id, q);
+                          const above = cell?.cac != null && ch.cap != null && cell.cac > ch.cap;
+                          return (
+                            <td key={q} className={`px-5 py-2 text-right tabular-nums ${above ? 'font-semibold text-red-600' : ''}`}>
+                              {cell == null || cell.cac === null ? 'n.a.' : fmtEur(cell.cac)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
