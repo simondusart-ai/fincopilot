@@ -1,4 +1,4 @@
-# Déroulé de démonstration (9 minutes)
+# Déroulé de démonstration (10 minutes)
 
 Préparation, avant la restitution : `npm run seed` pour remettre la démo à zéro ; deux fenêtres de navigateur prêtes (une normale connectée en `cfo@fincopilot.demo`, une privée connectée en `growth@fincopilot.demo`) ; le serveur qui tourne ; une fenêtre de terminal ouverte sur le repo.
 
@@ -18,7 +18,9 @@ Préparation, avant la restitution : `npm run seed` pour remettre la démo à z�
 
 **7. Le pilotage mensuel, réalisé vs budget (1 min 30).** Fenêtre CFO, onglet Pilotage, exercice 2026 : les indicateurs réalisés mois par mois (MRR, ajouts nets, ARPA implicite, NRR, CAC moyen vs cible 515 €, marge de contribution, burn, runway) et le P&L annuel 2024-2026 avec une colonne Budget 2027 (CA et EBITDA issus des navettes). Les alertes sont sorties par le moteur : CAC moyen au-dessus de la cible au second semestre. Basculer sur l'exercice 2027 (vide), saisir janvier en direct dans la grille (nouveaux, churnés, MRR, S&M, trésorerie), enregistrer : la tuile de janvier et les indicateurs se recalculent aussitôt. Le pont réalisé vs budget est en place, sans quitter le moteur.
 
-**8. Sous le capot et roadmap (45 s).** Terminal : `npm test`, 51 tests verts, calculs vérifiés à la main, aucun chiffre rédigé par IA. Roadmap : reprise des réalisés depuis la comptabilité, NRR par cohorte client par client, workflow d'approbation, générateur de business case sur les mêmes conventions.
+**8. Le business case, décider avant d'engager (1 min 30).** Onglet Business case : saisir en direct les hypothèses du projet CGP en lecture défavorable (revenus 200/600/1200 K, coûts récurrents 800/1600/3200 K, une équipe dédiée, invest de lancement en année 1). Le moteur sort une VAN négative, un cash-flow cumulé de -4 300 K et un payback non atteint sur l'horizon : constat factuel, ne pas lancer tel quel. C'est exactement l'arbitrage de la Section 2. Pour un Head of dont la navette est en brouillon, le bouton "Pré-remplir ma navette" reverse les salaires et opex de l'année 1 dans les lignes choisies, répartis par trimestre et ajoutés aux valeurs existantes.
+
+**9. Sous le capot et roadmap (45 s).** Terminal : `npm test`, 59 tests verts, calculs vérifiés à la main, aucun chiffre rédigé par IA. Roadmap : reprise des réalisés depuis la comptabilité, NRR par cohorte client par client, workflow d'approbation, multi-tenant.
 
 ## Plans de secours
 
