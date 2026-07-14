@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
+import { btnPrimary, inputBase } from '@/components/shell';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -25,40 +26,36 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <form onSubmit={submit} className="bg-white border border-slate-200 rounded-lg p-8 w-full max-w-sm space-y-4">
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <form onSubmit={submit} className="w-full max-w-sm space-y-5 rounded-2xl bg-white p-8 shadow-sm">
         <div>
-          <h1 className="text-2xl font-semibold text-indigo-700">Navette</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="text-2xl font-bold text-primary">Navette</h1>
+          <p className="mt-1 text-sm text-ink/60">
             Campagne budgétaire : chaque Head of construit sa navette, la finance consolide en continu.
           </p>
         </div>
         <label className="block text-sm">
-          <span className="text-slate-600">Email</span>
+          <span className="font-semibold text-ink">Email</span>
           <input
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
+            className={`mt-1 w-full text-left ${inputBase} bg-white`}
           />
         </label>
         <label className="block text-sm">
-          <span className="text-slate-600">Mot de passe</span>
+          <span className="font-semibold text-ink">Mot de passe</span>
           <input
             type="password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
+            className={`mt-1 w-full text-left ${inputBase} bg-white`}
           />
         </label>
-        {error && <p className="text-sm text-red-700">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full bg-indigo-700 text-white rounded py-2 font-medium hover:bg-indigo-800 disabled:opacity-50"
-        >
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}>
           {busy ? 'Connexion...' : 'Se connecter'}
         </button>
       </form>
