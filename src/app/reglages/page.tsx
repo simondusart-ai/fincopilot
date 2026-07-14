@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, ErrorBox, Loading, Page, usePortalData } from '@/components/shell';
+import { Card, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 
 /**
@@ -89,28 +89,28 @@ export default function ReglagesPage() {
 
   const field = (label: string, key: string, hint?: string) => (
     <label className="block text-sm">
-      <span className="text-slate-600">{label}</span>
+      <span className="font-semibold text-ink">{label}</span>
       <input
         type="text"
         inputMode="decimal"
         value={company[key] ?? ''}
         onChange={(e) => setCompany((prev) => ({ ...prev, [key]: e.target.value }))}
-        className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
+        className={`mt-1 w-full bg-white text-left ${inputBase}`}
       />
-      {hint && <span className="text-xs text-slate-400">{hint}</span>}
+      {hint && <span className="text-xs text-ink/50">{hint}</span>}
     </label>
   );
 
   return (
     <Page data={data}>
-      <h1 className="text-xl font-semibold">Réglages : cadrage {data.company.name}</h1>
-      <p className="text-sm text-slate-500 mt-1">
+      <h1 className="text-2xl font-bold text-ink">Réglages : cadrage {data.company.name}</h1>
+      <p className="mt-1 text-sm text-ink/60">
         Toute la configuration société vit ici, pas dans le code : c'est ce qui rend l'outil réutilisable dans une autre entreprise.
       </p>
 
-      <div className="grid lg:grid-cols-3 gap-6 mt-6">
-        <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-          <h2 className="font-medium">Hypothèses société</h2>
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <div className="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-semibold text-ink">Hypothèses société</h2>
           {field('Trésorerie d’ouverture (€)', 'opening_cash')}
           {field('MRR d’ouverture (€)', 'opening_mrr')}
           {field('ARPA (€ / mois)', 'arpa')}
@@ -121,36 +121,36 @@ export default function ReglagesPage() {
           {field('Plafond payback brut (mois)', 'payback_cap_months', 'Vide = pas de plafond')}
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-          <h2 className="font-medium">Enveloppes par département (€ / an)</h2>
+        <div className="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-semibold text-ink">Enveloppes par département (€ / an)</h2>
           {data.departments.map((d) => (
             <label key={d.id} className="block text-sm">
-              <span className="text-slate-600">{d.name}{d.is_sales_marketing ? ' (S&M)' : ''}</span>
+              <span className="font-semibold text-ink">{d.name}{d.is_sales_marketing ? ' (S&M)' : ''}</span>
               <input
                 type="text"
                 inputMode="decimal"
                 value={envelopes[d.id] ?? ''}
                 onChange={(e) => setEnvelopes((prev) => ({ ...prev, [d.id]: e.target.value }))}
                 placeholder="Vide = pas d'enveloppe"
-                className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
+                className={`mt-1 w-full bg-white text-left ${inputBase}`}
               />
             </label>
           ))}
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-          <h2 className="font-medium">Plafonds de CAC par canal (€)</h2>
-          {data.channels.length === 0 && <p className="text-sm text-slate-500">Aucun canal défini.</p>}
+        <div className="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-semibold text-ink">Plafonds de CAC par canal (€)</h2>
+          {data.channels.length === 0 && <p className="text-sm text-ink/50">Aucun canal défini.</p>}
           {data.channels.map((c) => (
             <label key={c.id} className="block text-sm">
-              <span className="text-slate-600">{c.name}</span>
+              <span className="font-semibold text-ink">{c.name}</span>
               <input
                 type="text"
                 inputMode="decimal"
                 value={caps[c.id] ?? ''}
                 onChange={(e) => setCaps((prev) => ({ ...prev, [c.id]: e.target.value }))}
                 placeholder="Vide = pas de plafond"
-                className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
+                className={`mt-1 w-full bg-white text-left ${inputBase}`}
               />
             </label>
           ))}
@@ -163,14 +163,10 @@ export default function ReglagesPage() {
       </div>
 
       <div className="mt-6 flex items-center gap-4">
-        <button
-          onClick={saveAll}
-          disabled={busy}
-          className="bg-indigo-700 text-white rounded px-4 py-2 text-sm font-medium hover:bg-indigo-800 disabled:opacity-50"
-        >
+        <button onClick={saveAll} disabled={busy} className={btnPrimary}>
           {busy ? 'Enregistrement...' : 'Enregistrer les réglages'}
         </button>
-        {message && <p className="text-sm text-slate-600">{message}</p>}
+        {message && <p className="text-sm text-ink/70">{message}</p>}
       </div>
     </Page>
   );
