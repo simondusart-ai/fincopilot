@@ -173,15 +173,15 @@ export const FINCOPILOT: SeedCompany = {
     { id: 'fc-grw-soc-c', departmentId: 'fc-growth', code: 'SOC_CUST', label: 'Nouveaux clients Social Ads', kind: 'channel_customers', channelId: 'fc-social', sort: 6 },
     { id: 'fc-grw-par-s', departmentId: 'fc-growth', code: 'PAR_SPEND', label: 'Dépenses affiliation & partenaires', kind: 'channel_spend', channelId: 'fc-part', sort: 7 },
     { id: 'fc-grw-par-c', departmentId: 'fc-growth', code: 'PAR_CUST', label: 'Nouveaux clients affiliation', kind: 'channel_customers', channelId: 'fc-part', sort: 8 },
-    { id: 'fc-grw-pay', departmentId: 'fc-growth', code: 'MS', label: 'Masse salariale Growth', kind: 'payroll', sort: 9 },
+    { id: 'fc-grw-pay', departmentId: 'fc-growth', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 9 },
     { id: 'fc-grw-opex', departmentId: 'fc-growth', code: 'OPEX', label: 'Outils marketing & data', kind: 'opex', sort: 10 },
     // Ops / CS
     { id: 'fc-ops-cogs', departmentId: 'fc-ops', code: 'COGS_PROD', label: 'Traitement des déclarations (COGS)', kind: 'cogs', monthlyKey: 'saison_fiscale', sort: 1 },
     { id: 'fc-ops-exp', departmentId: 'fc-ops', code: 'EXPANSION', label: 'Cross-sell & upsell base installée', kind: 'expansion_mrr', sort: 2 },
-    { id: 'fc-ops-pay', departmentId: 'fc-ops', code: 'MS', label: 'Masse salariale Ops & CS', kind: 'payroll', sort: 3 },
+    { id: 'fc-ops-pay', departmentId: 'fc-ops', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 3 },
     { id: 'fc-ops-opex', departmentId: 'fc-ops', code: 'OPEX', label: 'Outils support', kind: 'opex', sort: 4 },
     // FA&P
-    { id: 'fc-fap-pay', departmentId: 'fc-fap', code: 'MS', label: 'Masse salariale FA&P', kind: 'payroll', sort: 1 },
+    { id: 'fc-fap-pay', departmentId: 'fc-fap', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 1 },
     { id: 'fc-fap-opex', departmentId: 'fc-fap', code: 'OPEX', label: 'Frais généraux, assurances, conseils', kind: 'opex', sort: 2 },
   ],
   submissions: [

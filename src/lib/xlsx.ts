@@ -1,4 +1,5 @@
-import type { ConsolidationResult } from './engine';
+import { BUSINESS_CASE_TAG, isInlineLine } from './engine';
+import type { ConsolidationInputs, ConsolidationResult } from './engine';
 import { MONTH_LABELS } from './format';
 
 /**
@@ -10,6 +11,7 @@ export async function exportConsolidation(
   result: ConsolidationResult,
   companyName: string,
   budgetYear: number,
+  inputs?: ConsolidationInputs,
 ): Promise<void> {
   if (!result.ok || !result.totals) {
     throw new Error('Consolidation bloquée : rien à exporter.');
@@ -84,6 +86,44 @@ export async function exportConsolidation(
   }
   ch.getColumn(1).width = 20;
   for (let c = 3; c <= 6; c++) ch.getColumn(c).width = 16;
+
+  // Onglet : postes de navette (référentiel, lignes libres et business cases)
+  if (inputs) {
+    const po = wb.addWorksheet('Postes');
+    po.addRow(['Département', 'Poste', 'Type', 'Origine', 'Fréquence', 'T1 (€)', 'T2 (€)', 'T3 (€)', 'T4 (€)']).font = bold;
+    const defById = new Map(inputs.driverDefs.map((d) => [d.id, d]));
+    const deptById = new Map(inputs.departments.map((d) => [d.id, d]));
+    for (const sub of inputs.submissions) {
+      const deptName = deptById.get(sub.departmentId)?.name ?? sub.departmentId;
+      for (const line of sub.lines) {
+        let label: string;
+        let kind: string;
+        let origin: string;
+        let frequency = '';
+        if (isInlineLine(line)) {
+          label = line.label;
+          kind = line.kind;
+          frequency = line.frequency;
+          origin = line.label.startsWith(BUSINESS_CASE_TAG) ? 'Business case' : 'Ligne libre';
+        } else {
+          const def = defById.get(line.driverDefId);
+          label = def?.label ?? line.driverDefId;
+          kind = def?.kind ?? '';
+          origin = 'Référentiel';
+        }
+        const r = po.addRow([deptName, label, kind, origin, frequency, line.q[0], line.q[1], line.q[2], line.q[3]]);
+        r.eachCell((cell, col) => {
+          if (col >= 6) cell.numFmt = eur;
+        });
+      }
+    }
+    po.getColumn(1).width = 20;
+    po.getColumn(2).width = 42;
+    po.getColumn(3).width = 18;
+    po.getColumn(4).width = 16;
+    po.getColumn(5).width = 14;
+    for (let c = 6; c <= 9; c++) po.getColumn(c).width = 14;
+  }
 
   // Onglet 4 : alertes
   const al = wb.addWorksheet('Alertes');

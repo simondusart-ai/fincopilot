@@ -81,7 +81,7 @@ export default function DashboardPage() {
           <button
             onClick={async () => {
               try {
-                await exportConsolidation(result, data.company.name, data.company.budget_year);
+                await exportConsolidation(result, data.company.name, data.company.budget_year, buildConsolidationInputs(data));
               } catch (e) {
                 setExportMsg(e instanceof Error ? e.message : String(e));
               }
