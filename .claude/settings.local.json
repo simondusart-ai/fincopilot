@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npm test *)",
+      "PowerShell(npm run *)",
+      "PowerShell(\"--- racine projet ---\"; Get-ChildItem -Force -Name | Sort-Object; \"--- .env.local existe ? ---\"; Test-Path .env.local; \"--- .gitignore existe ? ---\"; Test-Path .gitignore)",
+      "PowerShell(git *)"
+    ]
+  }
+}
