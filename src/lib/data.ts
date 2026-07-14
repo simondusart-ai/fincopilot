@@ -9,6 +9,7 @@ import type {
   Department,
   DriverDef,
   DriverKind,
+  LineFrequency,
   QuarterValues,
   Submission,
   SubmissionLine,
@@ -112,6 +113,23 @@ export interface SubmissionLineRow {
   unit_cost: number | null;
 }
 
+/** Ligne libre saisie par le métier (table submission_custom_lines). */
+export interface SubmissionCustomLineRow {
+  id: string;
+  submission_id: string;
+  kind: DriverKind;
+  label: string;
+  is_new: boolean;
+  vendor: string | null;
+  frequency: LineFrequency;
+  q1: number;
+  q2: number;
+  q3: number;
+  q4: number;
+  /** Réalisé du trimestre précédent. Non alimenté pour l'instant. */
+  prev_q4: number | null;
+}
+
 export interface PortalData {
   profile: ProfileRow;
   company: CompanyRow;
@@ -120,6 +138,7 @@ export interface PortalData {
   driverDefs: DriverDefRow[];
   submissions: SubmissionRow[];
   lines: SubmissionLineRow[];
+  customLines: SubmissionCustomLineRow[];
   businessCases: BusinessCaseRow[];
 }
 
@@ -198,16 +217,19 @@ export async function loadPortalData(): Promise<PortalData> {
     .single();
   if (pErr || !profile) throw new Error('Profil introuvable : contactez le CFO.');
 
-  const [companies, departments, channels, driverDefs, submissions, lines, businessCases] = await Promise.all([
+  const [companies, departments, channels, driverDefs, submissions, lines, customLines, businessCases] = await Promise.all([
     supabase.from('companies').select('*').eq('id', profile.company_id).single(),
     supabase.from('departments').select('*').order('sort'),
     supabase.from('channels').select('*').order('name'),
     supabase.from('driver_defs').select('*').order('sort'),
     supabase.from('submissions').select('*').order('version'),
     supabase.from('submission_lines').select('*'),
+    supabase.from('submission_custom_lines').select('*').order('label'),
     supabase.from('business_cases').select('*').order('created_at'),
   ]);
-  const firstError = companies.error ?? departments.error ?? channels.error ?? driverDefs.error ?? submissions.error ?? lines.error ?? businessCases.error;
+  const firstError =
+    companies.error ?? departments.error ?? channels.error ?? driverDefs.error ??
+    submissions.error ?? lines.error ?? customLines.error ?? businessCases.error;
   if (firstError) throw new Error(`Erreur de chargement : ${firstError.message}`);
 
   return {
@@ -218,6 +240,7 @@ export async function loadPortalData(): Promise<PortalData> {
     driverDefs: (driverDefs.data ?? []) as DriverDefRow[],
     submissions: (submissions.data ?? []) as SubmissionRow[],
     lines: (lines.data ?? []) as SubmissionLineRow[],
+    customLines: (customLines.data ?? []) as SubmissionCustomLineRow[],
     businessCases: (businessCases.data ?? []) as BusinessCaseRow[],
   };
 }
@@ -264,7 +287,11 @@ export function toDriverDef(row: DriverDefRow): DriverDef {
   };
 }
 
-export function toSubmission(row: SubmissionRow, allLines: SubmissionLineRow[]): Submission {
+export function toSubmission(
+  row: SubmissionRow,
+  allLines: SubmissionLineRow[],
+  allCustomLines: SubmissionCustomLineRow[] = [],
+): Submission {
   const lines: SubmissionLine[] = allLines
     .filter((l) => l.submission_id === row.id)
     .map((l) => ({
@@ -272,6 +299,18 @@ export function toSubmission(row: SubmissionRow, allLines: SubmissionLineRow[]):
       q: [Number(l.q1), Number(l.q2), Number(l.q3), Number(l.q4)] as QuarterValues,
       unitCost: l.unit_cost === null ? undefined : Number(l.unit_cost),
     }));
+  // Les lignes libres du métier s'ajoutent aux lignes du référentiel.
+  for (const c of allCustomLines.filter((c) => c.submission_id === row.id)) {
+    lines.push({
+      id: c.id,
+      kind: c.kind,
+      label: c.label,
+      frequency: c.frequency,
+      q: [Number(c.q1), Number(c.q2), Number(c.q3), Number(c.q4)] as QuarterValues,
+      isNew: c.is_new,
+      vendor: c.vendor ?? undefined,
+    });
+  }
   // Le moteur ne connaît que brouillon ou soumise : une navette validée reste soumise à ses yeux.
   const status = row.status === 'draft' ? 'draft' : 'submitted';
   return { departmentId: row.department_id, version: row.version, status, lines };
@@ -304,7 +343,7 @@ export function buildConsolidationInputs(data: PortalData): ConsolidationInputs 
     departments: data.departments.map(toDepartment),
     channels: data.channels.map(toChannel),
     driverDefs: data.driverDefs.map(toDriverDef),
-    submissions: [...latest.values()].map((row) => toSubmission(row, data.lines)),
+    submissions: [...latest.values()].map((row) => toSubmission(row, data.lines, data.customLines)),
   };
   // Les business cases acceptes s'ajoutent a la consolidation comme lignes synthetiques
   // (salaires et opex de l'annee 1) sur leur departement cible.

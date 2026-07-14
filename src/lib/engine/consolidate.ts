@@ -1,5 +1,6 @@
-import { monthlyizeFlow, monthlyizeLevel, sum } from './monthlyize';
+import { monthlyizeByFrequency, monthlyizeFlow, monthlyizeLevel, sum } from './monthlyize';
 import { validateInputs } from './validate';
+import { isInlineLine } from './types';
 import type {
   Alert,
   ChannelQuarterRow,
@@ -55,7 +56,9 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
   const cogs = zeros();
   const capex = zeros();
   /** true si la société déclare ses COGS en navettes : la marge brute devient revenu - COGS. */
-  const hasCogs = driverDefs.some((d) => d.kind === 'cogs');
+  const hasCogs =
+    driverDefs.some((d) => d.kind === 'cogs') ||
+    submissions.some((s) => s.lines.some((l) => isInlineLine(l) && l.kind === 'cogs'));
 
   // Coûts mensuels par département : total (pour les enveloppes) et hors COGS (pour l'EBITDA)
   const deptCosts = new Map<string, number[]>(departments.map((d) => [d.id, zeros()]));
@@ -70,6 +73,55 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
     const costs = deptCosts.get(sub.departmentId)!;
     const sgna = deptSgna.get(sub.departmentId)!;
     for (const line of sub.lines) {
+      // Lignes libres : le type et la fréquence sont portés par la ligne elle-même.
+      if (isInlineLine(line)) {
+        const flow = monthlyizeByFrequency(line.q, line.frequency);
+        switch (line.kind) {
+          case 'payroll':
+            for (let m = 0; m < 12; m++) {
+              payroll[m] += flow[m];
+              costs[m] += flow[m];
+              sgna[m] += flow[m];
+            }
+            break;
+          case 'opex':
+            for (let m = 0; m < 12; m++) {
+              opex[m] += flow[m];
+              costs[m] += flow[m];
+              sgna[m] += flow[m];
+            }
+            break;
+          case 'capex':
+            // Hors EBITDA et hors marge de contribution, mais dans l'enveloppe et la trésorerie.
+            for (let m = 0; m < 12; m++) {
+              capex[m] += flow[m];
+              costs[m] += flow[m];
+            }
+            break;
+          case 'cogs':
+            for (let m = 0; m < 12; m++) {
+              cogs[m] += flow[m];
+              costs[m] += flow[m];
+            }
+            break;
+          case 'revenue_other':
+            for (let m = 0; m < 12; m++) otherRevenue[m] += flow[m];
+            break;
+          case 'new_mrr':
+            for (let m = 0; m < 12; m++) newMrr[m] += flow[m];
+            deptMrrAdded.set(sub.departmentId, deptMrrAdded.get(sub.departmentId)! + sum(line.q));
+            break;
+          case 'expansion_mrr':
+            for (let m = 0; m < 12; m++) expansionMrr[m] += flow[m];
+            deptMrrAdded.set(sub.departmentId, deptMrrAdded.get(sub.departmentId)! + sum(line.q));
+            break;
+          default:
+            // headcount et canaux ne sont pas admis en ligne libre : contrôle bloquant amont.
+            break;
+        }
+        continue;
+      }
+
       const def = defById.get(line.driverDefId)!;
       const key = def.monthlyKey ? config.seasonalKeys?.[def.monthlyKey] : undefined;
       switch (def.kind) {

@@ -1,44 +1,50 @@
 import { consolidate } from './consolidate';
 import { sum } from './monthlyize';
+import { isInlineLine } from './types';
 import type {
   CompanyConfig,
   ConsolidationInputs,
   DriverDef,
+  DriverKind,
+  DriverSubmissionLine,
+  InlineSubmissionLine,
   LineDiff,
+  QuarterValues,
   Submission,
   SubmissionDiff,
-  SubmissionLine,
 } from './types';
 
 /**
  * Impact annuel d'une ligne, en euros :
  * - headcount : coût annuel (ETP du trimestre x 3 mois x coût mensuel moyen) ;
- * - payroll, opex, cogs et channel_spend : somme des quatre trimestres (coût) ;
+ * - payroll, opex, cogs, capex et channel_spend : somme des quatre trimestres (coût) ;
  * - new_mrr, expansion_mrr et revenue_other : revenu annuel ajouté (somme des flux) ;
  * - channel_customers : nouveaux clients x ARPA (MRR annuel ajouté).
  */
-function annualImpact(def: DriverDef, line: SubmissionLine | null, config: CompanyConfig): number {
-  if (!line) return 0;
-  switch (def.kind) {
+function annualImpact(kind: DriverKind, q: QuarterValues | null, unitCost: number | undefined, config: CompanyConfig): number {
+  if (!q) return 0;
+  switch (kind) {
     case 'headcount':
-      return sum(line.q) * 3 * (line.unitCost ?? 0);
+      return sum(q) * 3 * (unitCost ?? 0);
     case 'payroll':
     case 'opex':
     case 'cogs':
     case 'capex':
     case 'channel_spend':
-      return sum(line.q);
     case 'new_mrr':
     case 'expansion_mrr':
     case 'revenue_other':
-      return sum(line.q);
+      return sum(q);
     case 'channel_customers':
-      return sum(line.q) * config.arpa;
+      return sum(q) * config.arpa;
   }
 }
 
+const sameQ = (a: QuarterValues, b: QuarterValues) => a.every((v, i) => v === b[i]);
+
 /**
- * Compare deux versions de navette d'un même département.
+ * Compare deux versions de navette d'un même département : lignes du référentiel
+ * (appariées par driver) et lignes libres (appariées par libellé).
  * Si `inputs` est fourni (le contexte complet de consolidation, avec la version "before"
  * en place pour le département concerné), calcule aussi l'impact consolidé du passage
  * à la version "after" : delta d'EBITDA annuel, delta de trésorerie de fin d'année,
@@ -55,31 +61,71 @@ export function diffSubmissions(
     throw new Error('diffSubmissions : les deux navettes doivent appartenir au même département.');
   }
   const defById = new Map(driverDefs.map((d) => [d.id, d]));
-  const beforeByDef = new Map(before.lines.map((l) => [l.driverDefId, l]));
-  const afterByDef = new Map(after.lines.map((l) => [l.driverDefId, l]));
-  const allDefIds = [...new Set([...beforeByDef.keys(), ...afterByDef.keys()])];
+
+  const split = (sub: Submission) => {
+    const drivers = new Map<string, DriverSubmissionLine>();
+    const customs = new Map<string, InlineSubmissionLine>();
+    for (const l of sub.lines) {
+      if (isInlineLine(l)) customs.set(l.label, l);
+      else drivers.set(l.driverDefId, l);
+    }
+    return { drivers, customs };
+  };
+  const b = split(before);
+  const a = split(after);
 
   const lines: LineDiff[] = [];
-  for (const defId of allDefIds) {
+
+  // 1. Lignes du référentiel, appariées par driver.
+  for (const defId of new Set([...b.drivers.keys(), ...a.drivers.keys()])) {
     const def = defById.get(defId);
     if (!def) continue; // driver inconnu : relève des contrôles bloquants, pas du diff
-    const lineBefore = beforeByDef.get(defId) ?? null;
-    const lineAfter = afterByDef.get(defId) ?? null;
+    const lineBefore = b.drivers.get(defId) ?? null;
+    const lineAfter = a.drivers.get(defId) ?? null;
     const unchanged =
       lineBefore !== null &&
       lineAfter !== null &&
-      lineBefore.q.every((v, i) => v === lineAfter.q[i]) &&
+      sameQ(lineBefore.q, lineAfter.q) &&
       (lineBefore.unitCost ?? null) === (lineAfter.unitCost ?? null);
     if (unchanged) continue;
     lines.push({
+      key: defId,
       driverDefId: defId,
+      isCustom: false,
       label: def.label,
       kind: def.kind,
       before: lineBefore ? lineBefore.q : null,
       after: lineAfter ? lineAfter.q : null,
       unitCostBefore: lineBefore?.unitCost,
       unitCostAfter: lineAfter?.unitCost,
-      deltaAnnual: annualImpact(def, lineAfter, config) - annualImpact(def, lineBefore, config),
+      deltaAnnual:
+        annualImpact(def.kind, lineAfter ? lineAfter.q : null, lineAfter?.unitCost, config) -
+        annualImpact(def.kind, lineBefore ? lineBefore.q : null, lineBefore?.unitCost, config),
+    });
+  }
+
+  // 2. Lignes libres, appariées par libellé.
+  for (const label of new Set([...b.customs.keys(), ...a.customs.keys()])) {
+    const lineBefore = b.customs.get(label) ?? null;
+    const lineAfter = a.customs.get(label) ?? null;
+    const unchanged =
+      lineBefore !== null &&
+      lineAfter !== null &&
+      sameQ(lineBefore.q, lineAfter.q) &&
+      lineBefore.frequency === lineAfter.frequency &&
+      lineBefore.kind === lineAfter.kind;
+    if (unchanged) continue;
+    const kind = (lineAfter ?? lineBefore)!.kind;
+    lines.push({
+      key: `custom:${label}`,
+      isCustom: true,
+      label,
+      kind,
+      before: lineBefore ? lineBefore.q : null,
+      after: lineAfter ? lineAfter.q : null,
+      deltaAnnual:
+        annualImpact(kind, lineAfter ? lineAfter.q : null, undefined, config) -
+        annualImpact(kind, lineBefore ? lineBefore.q : null, undefined, config),
     });
   }
 

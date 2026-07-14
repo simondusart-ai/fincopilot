@@ -217,7 +217,8 @@ describe('contrôles bloquants (intégrité des données)', () => {
 
   it('refuse une ligne effectifs sans coût unitaire', () => {
     const inputs = fixture();
-    delete inputs.submissions[1].lines[0].unitCost;
+    // La ligne est une ligne de référentiel : seule celle-ci porte un coût unitaire.
+    delete (inputs.submissions[1].lines[0] as { unitCost?: number }).unitCost;
     const res = consolidate(inputs);
     expect(res.ok).toBe(false);
     expect(res.blocking.some((a) => a.code === 'LIGNE_COUT_UNITAIRE')).toBe(true);

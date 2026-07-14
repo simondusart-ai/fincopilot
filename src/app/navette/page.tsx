@@ -4,8 +4,26 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 import { computeBusinessCase } from '@/lib/engine';
+import type { DriverKind, LineFrequency } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
 import type { DriverDefRow, SubmissionRow } from '@/lib/data';
+
+/** Suggestions de fournisseurs pour les lignes d'outils et de dépenses. */
+const VENDOR_SUGGESTIONS = [
+  'Lemlist', 'LinkedIn Sales Navigator', 'Hubspot', 'Salesforce', 'Aircall',
+  'Notion', 'Slack', 'Figma', 'AWS',
+];
+
+/** Ligne libre en cours d'édition. */
+interface CustomEdit {
+  id: string;
+  kind: DriverKind;
+  label: string;
+  vendor: string;
+  frequency: LineFrequency;
+  isNew: boolean;
+  q: [string, string, string, string];
+}
 
 function statusBadge(status: string) {
   if (status === 'accepted') return <Badge tone="accent" dot="mint">Accepté</Badge>;
@@ -54,6 +72,7 @@ export default function NavettePage() {
   const [message, setMessage] = useState<string | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const [note, setNote] = useState('');
+  const [customs, setCustoms] = useState<CustomEdit[]>([]);
 
   const effectiveDeptId = deptId ?? data?.profile.department_id ?? data?.departments[0]?.id ?? null;
   const dept = data?.departments.find((d) => d.id === effectiveDeptId) ?? null;
@@ -75,8 +94,22 @@ export default function NavettePage() {
   useEffect(() => {
     if (!data || !latest) {
       setEdit({});
+      setCustoms([]);
       return;
     }
+    setCustoms(
+      data.customLines
+        .filter((c) => c.submission_id === latest.id)
+        .map((c) => ({
+          id: c.id,
+          kind: c.kind,
+          label: c.label,
+          vendor: c.vendor ?? '',
+          frequency: c.frequency,
+          isNew: c.is_new,
+          q: [String(c.q1), String(c.q2), String(c.q3), String(c.q4)] as [string, string, string, string],
+        })),
+    );
     const byDef: Record<string, EditLine> = {};
     for (const def of defs) {
       const line = data.lines.find((l) => l.submission_id === latest.id && l.driver_def_id === def.id);
@@ -95,7 +128,7 @@ export default function NavettePage() {
   const supabase = getSupabase();
 
   /** Estimation locale du coût annuel de la navette (indicatif, avant consolidation). */
-  const annualCostEstimate = defs.reduce((total, def) => {
+  const driverCostEstimate = defs.reduce((total, def) => {
     const line = edit[def.id];
     if (!line) return total;
     const qs = line.q.map((v) => Number(v) || 0);
@@ -104,6 +137,12 @@ export default function NavettePage() {
     if (def.kind === 'payroll' || def.kind === 'opex' || def.kind === 'cogs' || def.kind === 'channel_spend') return total + s;
     return total;
   }, 0);
+  // Les lignes libres de coût (salaires, opex, capex) comptent dans le total du département.
+  const customCostEstimate = customs.reduce((total, c) => {
+    if (c.kind !== 'payroll' && c.kind !== 'opex' && c.kind !== 'capex' && c.kind !== 'cogs') return total;
+    return total + c.q.reduce((a, v) => a + (Number(v) || 0), 0);
+  }, 0);
+  const annualCostEstimate = driverCostEstimate + customCostEstimate;
 
   const overEnvelope = dept?.envelope != null && annualCostEstimate > Number(dept.envelope);
   const withinEnvelope = dept?.envelope != null && !overEnvelope;
@@ -124,6 +163,19 @@ export default function NavettePage() {
           errs.push(`${def.label} : coût mensuel moyen par ETP manquant ou invalide.`);
         }
       }
+    }
+    // Lignes libres : libellé non vide, unique, et valeurs numériques positives.
+    const labels = new Set<string>();
+    for (const c of customs) {
+      const label = c.label.trim();
+      if (label === '') errs.push('Une ligne libre a un libellé vide.');
+      else if (labels.has(label)) errs.push(`Deux lignes libres portent le libellé "${label}".`);
+      labels.add(label);
+      c.q.forEach((v, i) => {
+        const n = Number(v);
+        if (v.trim() === '' || !Number.isFinite(n)) errs.push(`${label || 'Ligne libre'}, T${i + 1} : valeur non numérique.`);
+        else if (n < 0) errs.push(`${label || 'Ligne libre'}, T${i + 1} : valeur négative non admise.`);
+      });
     }
     return errs;
   }
@@ -147,6 +199,76 @@ export default function NavettePage() {
     if (error) throw new Error(error.message);
   }
 
+  /**
+   * Persiste les lignes libres. `copy` = true pour recopier les lignes dans une
+   * NOUVELLE version (nouveaux identifiants) ; sinon on met a jour les lignes existantes.
+   */
+  async function persistCustomLines(submissionId: string, copy = false) {
+    if (customs.length === 0) return;
+    const rows = customs.map((c) => ({
+      ...(copy ? {} : { id: c.id }),
+      submission_id: submissionId,
+      kind: c.kind,
+      label: c.label.trim(),
+      is_new: c.isNew,
+      vendor: c.vendor.trim() === '' ? null : c.vendor.trim(),
+      frequency: c.frequency,
+      q1: Number(c.q[0]) || 0,
+      q2: Number(c.q[1]) || 0,
+      q3: Number(c.q[2]) || 0,
+      q4: Number(c.q[3]) || 0,
+    }));
+    const { error } = copy
+      ? await supabase.from('submission_custom_lines').insert(rows)
+      : await supabase.from('submission_custom_lines').upsert(rows);
+    if (error) throw new Error(error.message);
+  }
+
+  async function addCustom(kind: DriverKind) {
+    if (!latest || latest.status !== 'draft') return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await persistCustomLines(latest.id); // ne pas perdre les saisies en cours
+      const base = kind === 'payroll' ? 'Nouveau poste' : 'Nouvelle dépense';
+      const taken = new Set(customs.map((c) => c.label.trim()));
+      let label = base;
+      let n = 2;
+      while (taken.has(label)) label = `${base} ${n++}`;
+      const frequency: LineFrequency = kind === 'payroll' ? 'mensuel' : kind === 'capex' ? 'one_shot' : 'trimestriel';
+      const { error } = await supabase.from('submission_custom_lines').insert({
+        submission_id: latest.id,
+        kind,
+        label,
+        is_new: true,
+        vendor: null,
+        frequency,
+        q1: 0, q2: 0, q3: 0, q4: 0,
+      });
+      if (error) throw new Error(error.message);
+      await reload();
+    } catch (e) {
+      setMessage(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeCustom(id: string) {
+    if (!latest || latest.status !== 'draft') return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { error } = await supabase.from('submission_custom_lines').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+      await reload();
+    } catch (e) {
+      setMessage(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createVersion() {
     if (!dept) return;
     setBusy(true);
@@ -161,6 +283,7 @@ export default function NavettePage() {
         .single();
       if (error) throw new Error(error.message);
       await persistLines((created as SubmissionRow).id);
+      await persistCustomLines((created as SubmissionRow).id, true); // recopie les lignes libres
       setMessage(`Version v${version} créée en brouillon.`);
       await reload();
     } catch (e) {
@@ -176,6 +299,7 @@ export default function NavettePage() {
     setMessage(null);
     try {
       await persistLines(latest.id);
+      await persistCustomLines(latest.id);
       setMessage('Brouillon enregistré.');
       await reload();
     } catch (e) {
@@ -194,6 +318,7 @@ export default function NavettePage() {
     setMessage(null);
     try {
       await persistLines(latest.id);
+      await persistCustomLines(latest.id);
       const { error } = await supabase
         .from('submissions')
         .update({ status: 'submitted', submitted_at: new Date().toISOString() })
@@ -237,6 +362,111 @@ export default function NavettePage() {
   const acceptedBcAnnual = deptBusinessCases
     .filter((bc) => bc.status === 'accepted')
     .reduce((sum, bc) => { const y1 = computeBusinessCase(bc.params).years[0]; return sum + (y1 ? y1.salaries + y1.otherOpex : 0); }, 0);
+
+  // Lignes libres : édition réservée au brouillon, par le CFO ou le Head of du département.
+  const canEditLines = isDraft && canManage;
+  const payrollCustoms = customs.filter((c) => c.kind === 'payroll');
+  const toolCustoms = customs.filter((c) => c.kind === 'opex' || c.kind === 'capex');
+
+  const updateCustom = (id: string, patch: Partial<CustomEdit>) =>
+    setCustoms((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const updateCustomQ = (id: string, i: number, v: string) =>
+    setCustoms((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const q = [...c.q] as CustomEdit['q'];
+        q[i] = v;
+        return { ...c, q };
+      }),
+    );
+
+  function customRow(c: CustomEdit, withVendor: boolean) {
+    return (
+      <tr key={c.id} className="border-b border-lav/60 last:border-0">
+        <td className="px-5 py-2">
+          <input
+            type="text"
+            value={c.label}
+            disabled={!canEditLines}
+            onChange={(e) => updateCustom(c.id, { label: e.target.value })}
+            className={`w-52 ${inputBase}`}
+          />
+        </td>
+        {withVendor && (
+          <>
+            <td className="px-3 py-2">
+              <input
+                type="text"
+                list="vendor-suggestions"
+                value={c.vendor}
+                disabled={!canEditLines}
+                placeholder="Fournisseur"
+                onChange={(e) => updateCustom(c.id, { vendor: e.target.value })}
+                className={`w-44 ${inputBase}`}
+              />
+            </td>
+            <td className="px-3 py-2">
+              <select
+                value={c.kind}
+                disabled={!canEditLines}
+                onChange={(e) => updateCustom(c.id, { kind: e.target.value as DriverKind })}
+                className={`bg-white ${inputBase}`}
+              >
+                <option value="opex">Opex</option>
+                <option value="capex">Capex</option>
+              </select>
+            </td>
+          </>
+        )}
+        <td className="px-3 py-2">
+          <select
+            value={c.isNew ? 'new' : 'existing'}
+            disabled={!canEditLines}
+            onChange={(e) => updateCustom(c.id, { isNew: e.target.value === 'new' })}
+            className={`bg-white ${inputBase}`}
+          >
+            <option value="existing">Existant</option>
+            <option value="new">Nouveau</option>
+          </select>
+        </td>
+        <td className="px-3 py-2">
+          <select
+            value={c.frequency}
+            disabled={!canEditLines}
+            onChange={(e) => updateCustom(c.id, { frequency: e.target.value as LineFrequency })}
+            className={`bg-white ${inputBase}`}
+          >
+            <option value="mensuel">Mensuel</option>
+            <option value="trimestriel">Trimestriel</option>
+            <option value="one_shot">One shot</option>
+          </select>
+        </td>
+        {[0, 1, 2, 3].map((i) => (
+          <td key={i} className="px-3 py-2 text-right">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={c.q[i]}
+              disabled={!canEditLines}
+              onChange={(e) => updateCustomQ(c.id, i, e.target.value)}
+              className={`w-24 text-right ${inputBase}`}
+            />
+          </td>
+        ))}
+        {canEditLines && (
+          <td className="px-3 py-2 text-right">
+            <button
+              onClick={() => removeCustom(c.id)}
+              disabled={busy}
+              className="rounded-full border border-lav bg-white px-3 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-card-soft"
+            >
+              Supprimer
+            </button>
+          </td>
+        )}
+      </tr>
+    );
+  }
 
   /** Decision du CFO ou du CEO sur la derniere version soumise. */
   async function decideSubmission(status: 'approved' | 'rejected') {
@@ -501,6 +731,81 @@ export default function NavettePage() {
                       );
                     })}
                   </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Suggestions de fournisseurs, partagées par les champs "Fournisseur" */}
+          <datalist id="vendor-suggestions">
+            {VENDOR_SUGGESTIONS.map((v) => (<option key={v} value={v} />))}
+          </datalist>
+
+          {/* Lignes libres : masse salariale (une ligne par ETP) */}
+          <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
+            <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
+              <h2 className="font-semibold text-ink">Masse salariale</h2>
+              <span className="text-xs text-ink/50">Une ligne par ETP, libellé = fonction.</span>
+              {canEditLines && (
+                <button onClick={() => addCustom('payroll')} disabled={busy} className={`${btnSecondary} ml-auto`}>
+                  Ajouter un poste
+                </button>
+              )}
+            </div>
+            {payrollCustoms.length === 0 ? (
+              <p className="p-5 text-sm text-ink/50">Aucun poste saisi.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="mt-3 w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                      <th className="px-5 py-3 font-semibold">Poste</th>
+                      <th className="px-3 py-3 font-semibold">Statut</th>
+                      <th className="px-3 py-3 font-semibold">Fréquence</th>
+                      <th className="px-3 py-3 text-right font-semibold">T1</th>
+                      <th className="px-3 py-3 text-right font-semibold">T2</th>
+                      <th className="px-3 py-3 text-right font-semibold">T3</th>
+                      <th className="px-3 py-3 text-right font-semibold">T4</th>
+                      {canEditLines && <th className="px-3 py-3" />}
+                    </tr>
+                  </thead>
+                  <tbody>{payrollCustoms.map((c) => customRow(c, false))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Lignes libres : outils et dépenses (opex ou capex, avec fournisseur) */}
+          <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
+            <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
+              <h2 className="font-semibold text-ink">Outils et dépenses</h2>
+              <span className="text-xs text-ink/50">Opex ou capex, un fournisseur par ligne.</span>
+              {canEditLines && (
+                <button onClick={() => addCustom('opex')} disabled={busy} className={`${btnSecondary} ml-auto`}>
+                  Ajouter une dépense
+                </button>
+              )}
+            </div>
+            {toolCustoms.length === 0 ? (
+              <p className="p-5 text-sm text-ink/50">Aucune dépense saisie.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="mt-3 w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                      <th className="px-5 py-3 font-semibold">Outil</th>
+                      <th className="px-3 py-3 font-semibold">Fournisseur</th>
+                      <th className="px-3 py-3 font-semibold">Type</th>
+                      <th className="px-3 py-3 font-semibold">Statut</th>
+                      <th className="px-3 py-3 font-semibold">Fréquence</th>
+                      <th className="px-3 py-3 text-right font-semibold">T1</th>
+                      <th className="px-3 py-3 text-right font-semibold">T2</th>
+                      <th className="px-3 py-3 text-right font-semibold">T3</th>
+                      <th className="px-3 py-3 text-right font-semibold">T4</th>
+                      {canEditLines && <th className="px-3 py-3" />}
+                    </tr>
+                  </thead>
+                  <tbody>{toolCustoms.map((c) => customRow(c, true))}</tbody>
                 </table>
               </div>
             )}

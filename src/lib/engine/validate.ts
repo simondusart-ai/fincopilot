@@ -1,3 +1,4 @@
+import { INLINE_KINDS, isInlineLine } from './types';
 import type { Alert, ConsolidationInputs, DriverDef } from './types';
 
 /**
@@ -68,7 +69,34 @@ export function validateInputs(inputs: ConsolidationInputs): Alert[] {
   for (const sub of submissions) {
     const dept = deptById.get(sub.departmentId);
     const deptName = dept ? dept.name : sub.departmentId;
+    const inlineLabels = new Set<string>();
     for (const line of sub.lines) {
+      // Lignes libres : libellé non vide, type admis, valeurs numériques positives.
+      if (isInlineLine(line)) {
+        const label = (line.label ?? '').trim();
+        if (label === '') {
+          blocking.push(b('LIGNE_LIBRE_LIBELLE', `Navette ${deptName} : une ligne libre a un libellé vide.`, sub.departmentId));
+        } else if (inlineLabels.has(label)) {
+          blocking.push(b('LIGNE_LIBRE_DOUBLON', `Navette ${deptName} : deux lignes libres portent le libellé "${label}".`, sub.departmentId));
+        }
+        inlineLabels.add(label);
+        if (!INLINE_KINDS.includes(line.kind)) {
+          blocking.push(b('LIGNE_LIBRE_TYPE', `Navette ${deptName}, ligne "${label}" : le type "${line.kind}" n'est pas admis pour une ligne libre.`, sub.departmentId));
+        }
+        if (!Array.isArray(line.q) || line.q.length !== 4) {
+          blocking.push(b('LIGNE_TRIMESTRES', `Navette ${deptName}, ligne "${label}" : quatre valeurs trimestrielles attendues.`, sub.departmentId));
+          continue;
+        }
+        line.q.forEach((v, i) => {
+          if (!Number.isFinite(v)) {
+            blocking.push(bq('LIGNE_NON_NUMERIQUE', `Navette ${deptName}, ligne "${label}", T${i + 1} : valeur non numérique.`, sub.departmentId, i + 1));
+          } else if (v < 0) {
+            blocking.push(bq('LIGNE_NEGATIVE', `Navette ${deptName}, ligne "${label}", T${i + 1} : valeur négative (${v}) non admise.`, sub.departmentId, i + 1));
+          }
+        });
+        continue;
+      }
+
       const def = defById.get(line.driverDefId);
       if (!def) {
         blocking.push(b('LIGNE_DRIVER_INCONNU', `Navette ${deptName} : une ligne référence un driver inconnu (${line.driverDefId}).`, sub.departmentId));

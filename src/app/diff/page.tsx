@@ -32,14 +32,14 @@ export default function DiffPage() {
       ...inputs,
       submissions: [
         ...inputs.submissions.filter((s) => s.departmentId !== effectiveDeptId),
-        { ...toSubmission(before, data.lines), status: 'submitted' as const },
+        { ...toSubmission(before, data.lines, data.customLines), status: 'submitted' as const },
       ],
     };
     return diffSubmissions(
       inputs.driverDefs,
       toCompanyConfig(data.company),
-      { ...toSubmission(before, data.lines), status: 'submitted' },
-      { ...toSubmission(after, data.lines), status: 'submitted' },
+      { ...toSubmission(before, data.lines, data.customLines), status: 'submitted' },
+      { ...toSubmission(after, data.lines, data.customLines), status: 'submitted' },
       inputsWithBefore,
     );
   }, [data, effectiveDeptId, versions, vBefore, vAfter]);
@@ -131,8 +131,11 @@ export default function DiffPage() {
                   </thead>
                   <tbody>
                     {diff.lines.map((l) => (
-                      <tr key={l.driverDefId} className="border-b border-lav/60 last:border-0">
-                        <td className="px-5 py-2.5 font-semibold text-ink">{l.label}</td>
+                      <tr key={l.key} className="border-b border-lav/60 last:border-0">
+                        <td className="px-5 py-2.5 font-semibold text-ink">
+                          {l.label}
+                          {l.isCustom && <span className="ml-2 text-xs font-normal text-ink/50">(ligne libre)</span>}
+                        </td>
                         <td className="px-5 py-2.5 tabular-nums text-ink/70">
                           {l.before ? l.before.map((v) => v.toLocaleString('fr-FR')).join(' / ') : 'ligne absente'}
                           {l.unitCostBefore !== undefined && ` (coût ETP ${l.unitCostBefore.toLocaleString('fr-FR')} €)`}

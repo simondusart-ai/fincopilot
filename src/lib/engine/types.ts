@@ -86,12 +86,48 @@ export interface Channel {
 /** Quatre valeurs trimestrielles saisies par le Head of. */
 export type QuarterValues = [number, number, number, number];
 
-export interface SubmissionLine {
+/** Ligne rattachée à un driver du référentiel (configuration société). */
+export interface DriverSubmissionLine {
   driverDefId: string;
   q: QuarterValues;
   /** Pour les lignes headcount : coût mensuel moyen chargé par ETP, en euros. */
   unitCost?: number;
 }
+
+/**
+ * Ligne libre saisie par le métier : elle porte elle-même son type, son libellé et sa
+ * fréquence de décaissement, sans passer par le référentiel de drivers.
+ */
+export interface InlineSubmissionLine {
+  /** Identifiant stable de la ligne (table submission_custom_lines). */
+  id: string;
+  kind: DriverKind;
+  label: string;
+  frequency: LineFrequency;
+  q: QuarterValues;
+  /** true si le poste est nouveau, false s'il est reconduit. */
+  isNew?: boolean;
+  /** Fournisseur, pour les lignes d'outils et de dépenses. */
+  vendor?: string;
+}
+
+export type SubmissionLine = DriverSubmissionLine | InlineSubmissionLine;
+
+/** Discrimine une ligne libre d'une ligne de référentiel. */
+export function isInlineLine(line: SubmissionLine): line is InlineSubmissionLine {
+  return 'kind' in line;
+}
+
+/** Types admis pour une ligne libre : ni effectifs (coût unitaire), ni canaux (référence canal). */
+export const INLINE_KINDS: ReadonlyArray<DriverKind> = [
+  'new_mrr',
+  'expansion_mrr',
+  'revenue_other',
+  'payroll',
+  'opex',
+  'cogs',
+  'capex',
+];
 
 export type SubmissionStatus = 'draft' | 'submitted';
 
@@ -226,7 +262,12 @@ export interface ConsolidationResult {
 
 /** Diff entre deux versions de navette d'un même département. */
 export interface LineDiff {
-  driverDefId: string;
+  /** Clé stable de la ligne : id du driver, ou libellé pour une ligne libre. */
+  key: string;
+  /** Driver du référentiel. Absent pour une ligne libre. */
+  driverDefId?: string;
+  /** true si la ligne est une ligne libre saisie par le métier. */
+  isCustom: boolean;
   label: string;
   kind: DriverKind;
   before: QuarterValues | null; // null = ligne ajoutée
