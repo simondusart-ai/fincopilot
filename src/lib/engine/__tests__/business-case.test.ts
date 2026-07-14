@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { computeBusinessCase } from '../business-case';
+import { applyBusinessCases, computeBusinessCase, type AcceptedBusinessCase } from '../business-case';
+import { consolidate } from '../consolidate';
+import type { ConsolidationInputs } from '../types';
 
 /**
  * Tests du moteur de business case.
@@ -87,5 +89,48 @@ describe('computeBusinessCase : valeurs par defaut', () => {
     const res = computeBusinessCase({ label: 'clamp', horizonYears: 9, years: [] });
     expect(res.horizonYears).toBe(5);
     expect(res.years.length).toBe(5);
+  });
+});
+
+describe('applyBusinessCases : injection des cas acceptes dans la consolidation', () => {
+  const baseInputs: ConsolidationInputs = {
+    config: {
+      name: 'T', budgetYear: 2027, openingCash: 1_000_000, openingMrr: 0, arpa: 100,
+      grossMarginPct: 0.7, monthlyChurnPct: 0, runwayVigilanceMonths: 18, runwayFreezeMonths: 12,
+    },
+    departments: [{ id: 'd1', code: 'D1', name: 'Dept', envelope: null, isSalesMarketing: false }],
+    channels: [],
+    driverDefs: [{ id: 'p1', departmentId: 'd1', code: 'P1', label: 'Salaires', kind: 'payroll' }],
+    submissions: [{ departmentId: 'd1', version: 1, status: 'submitted', lines: [{ driverDefId: 'p1', q: [100_000, 100_000, 100_000, 100_000] }] }],
+  };
+  const bc: AcceptedBusinessCase = {
+    id: 'bc1',
+    label: 'Projet X',
+    targetDepartmentId: 'd1',
+    // salaires annee 1 = 1 x 10 000 x 12 = 120 000 ; opex = 20 000
+    params: { label: 'Projet X', horizonYears: 1, discountRate: 0.15, years: [{ revenue: 0, recurringCosts: 0, fte: 1, monthlyCostPerFte: 10_000, otherOpex: 20_000 }] },
+  };
+
+  it('ajoute des lignes synthetiques payroll et opex sur le departement cible', () => {
+    const applied = applyBusinessCases(baseInputs, [bc]);
+    expect(applied.driverDefs.map((d) => d.id)).toContain('bc-bc1-pay');
+    expect(applied.driverDefs.map((d) => d.id)).toContain('bc-bc1-opex');
+    const sub = applied.submissions.find((s) => s.departmentId === 'd1')!;
+    expect(sub.lines.length).toBe(3);
+    // n'altere pas les entrees d'origine
+    expect(baseInputs.submissions[0].lines.length).toBe(1);
+  });
+
+  it('le cout annuel du departement augmente des salaires et opex du business case', () => {
+    const res = consolidate(applyBusinessCases(baseInputs, [bc]));
+    expect(res.ok).toBe(true);
+    const d = res.departments.find((x) => x.departmentId === 'd1')!;
+    // base 400 000 + salaires 120 000 + opex 20 000
+    expect(d.annualCost).toBe(540_000);
+  });
+
+  it('sans departement cible correspondant, les entrees sont inchangees', () => {
+    const applied = applyBusinessCases(baseInputs, [{ ...bc, targetDepartmentId: 'inconnu' }]);
+    expect(applied.driverDefs.length).toBe(baseInputs.driverDefs.length);
   });
 });

@@ -58,6 +58,46 @@ export interface BusinessCaseResult {
   paybackMonths: number | null;
 }
 
+import type { ConsolidationInputs, DriverDef } from './types';
+
+/** Business case accepte a injecter dans la consolidation. */
+export interface AcceptedBusinessCase {
+  id: string;
+  label: string;
+  targetDepartmentId: string;
+  params: BusinessCaseInput;
+}
+
+/**
+ * Injecte les business cases acceptes dans des entrees de consolidation, sous forme
+ * de lignes synthetiques payroll et opex (montants de l'annee 1, repartis en quatre
+ * trimestres egaux) sur le departement cible. Fonction pure : le moteur de
+ * consolidation n'est pas modifie, il traite ces lignes comme n'importe quelles autres.
+ * Sans effet si le departement cible n'a pas de navette dans les entrees.
+ */
+export function applyBusinessCases(inputs: ConsolidationInputs, cases: AcceptedBusinessCase[]): ConsolidationInputs {
+  const driverDefs: DriverDef[] = [...inputs.driverDefs];
+  const submissions = inputs.submissions.map((s) => ({ ...s, lines: [...s.lines] }));
+
+  for (const bc of cases) {
+    const sub = submissions.find((s) => s.departmentId === bc.targetDepartmentId);
+    if (!sub) continue;
+    const y1 = computeBusinessCase(bc.params).years[0];
+    if (!y1) continue;
+    const add = (suffix: string, kind: 'payroll' | 'opex', annual: number, labelSuffix: string) => {
+      if (annual <= 0) return;
+      const id = `bc-${bc.id}-${suffix}`;
+      driverDefs.push({ id, departmentId: bc.targetDepartmentId, code: id, label: `${bc.label} (${labelSuffix})`, kind });
+      const perQuarter = annual / 4;
+      sub.lines.push({ driverDefId: id, q: [perQuarter, perQuarter, perQuarter, perQuarter] });
+    };
+    add('pay', 'payroll', y1.salaries, 'salaires');
+    add('opex', 'opex', y1.otherOpex, 'opex');
+  }
+
+  return { ...inputs, driverDefs, submissions };
+}
+
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 export function computeBusinessCase(params: BusinessCaseInput): BusinessCaseResult {

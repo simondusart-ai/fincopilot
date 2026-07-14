@@ -1,5 +1,8 @@
 import { getSupabase } from './supabase';
+import { applyBusinessCases } from './engine';
 import type {
+  AcceptedBusinessCase,
+  BusinessCaseInput,
   Channel,
   CompanyConfig,
   ConsolidationInputs,
@@ -61,8 +64,22 @@ export interface ProfileRow {
   user_id: string;
   company_id: string;
   department_id: string | null;
-  role: 'cfo' | 'head_of';
+  role: 'cfo' | 'head_of' | 'ceo';
   full_name: string;
+}
+
+export interface BusinessCaseRow {
+  id: string;
+  company_id: string;
+  department_id: string | null;
+  target_department_id: string | null;
+  label: string;
+  params: BusinessCaseInput;
+  status: 'proposed' | 'accepted' | 'rejected';
+  created_by: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
 }
 
 export interface SubmissionRow {
@@ -94,6 +111,7 @@ export interface PortalData {
   driverDefs: DriverDefRow[];
   submissions: SubmissionRow[];
   lines: SubmissionLineRow[];
+  businessCases: BusinessCaseRow[];
 }
 
 /** Lignes brutes de l'historique realise (migration 0003). Montants en euros. */
@@ -171,15 +189,16 @@ export async function loadPortalData(): Promise<PortalData> {
     .single();
   if (pErr || !profile) throw new Error('Profil introuvable : contactez le CFO.');
 
-  const [companies, departments, channels, driverDefs, submissions, lines] = await Promise.all([
+  const [companies, departments, channels, driverDefs, submissions, lines, businessCases] = await Promise.all([
     supabase.from('companies').select('*').eq('id', profile.company_id).single(),
     supabase.from('departments').select('*').order('sort'),
     supabase.from('channels').select('*').order('name'),
     supabase.from('driver_defs').select('*').order('sort'),
     supabase.from('submissions').select('*').order('version'),
     supabase.from('submission_lines').select('*'),
+    supabase.from('business_cases').select('*').order('created_at'),
   ]);
-  const firstError = companies.error ?? departments.error ?? channels.error ?? driverDefs.error ?? submissions.error ?? lines.error;
+  const firstError = companies.error ?? departments.error ?? channels.error ?? driverDefs.error ?? submissions.error ?? lines.error ?? businessCases.error;
   if (firstError) throw new Error(`Erreur de chargement : ${firstError.message}`);
 
   return {
@@ -190,6 +209,7 @@ export async function loadPortalData(): Promise<PortalData> {
     driverDefs: (driverDefs.data ?? []) as DriverDefRow[],
     submissions: (submissions.data ?? []) as SubmissionRow[],
     lines: (lines.data ?? []) as SubmissionLineRow[],
+    businessCases: (businessCases.data ?? []) as BusinessCaseRow[],
   };
 }
 
@@ -264,11 +284,17 @@ export function latestSubmittedByDept(submissions: SubmissionRow[]): Map<string,
  */
 export function buildConsolidationInputs(data: PortalData): ConsolidationInputs {
   const latest = latestSubmittedByDept(data.submissions);
-  return {
+  const base: ConsolidationInputs = {
     config: toCompanyConfig(data.company),
     departments: data.departments.map(toDepartment),
     channels: data.channels.map(toChannel),
     driverDefs: data.driverDefs.map(toDriverDef),
     submissions: [...latest.values()].map((row) => toSubmission(row, data.lines)),
   };
+  // Les business cases acceptes s'ajoutent a la consolidation comme lignes synthetiques
+  // (salaires et opex de l'annee 1) sur leur departement cible.
+  const accepted: AcceptedBusinessCase[] = (data.businessCases ?? [])
+    .filter((bc) => bc.status === 'accepted' && bc.target_department_id)
+    .map((bc) => ({ id: bc.id, label: bc.label, targetDepartmentId: bc.target_department_id!, params: bc.params }));
+  return accepted.length > 0 ? applyBusinessCases(base, accepted) : base;
 }
