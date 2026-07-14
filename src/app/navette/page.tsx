@@ -13,6 +13,21 @@ function statusBadge(status: string) {
   return <Badge tone="muted">Proposé</Badge>;
 }
 
+/** Pastille de type affichee par ligne (regroupement metier des kinds du moteur). */
+const KIND_TYPE: Record<string, string> = {
+  new_mrr: 'Revenu récurrent',
+  expansion_mrr: 'Revenu récurrent',
+  revenue_other: 'Revenu ponctuel',
+  payroll: 'Salaires',
+  headcount: 'Salaires',
+  opex: 'Opex',
+  channel_spend: 'Opex',
+  cogs: 'COGS',
+  capex: 'Capex',
+  // channel_customers n'est pas un poste de coût ni de revenu : c'est un volume de clients.
+  channel_customers: 'Volume',
+};
+
 const KIND_LABEL: Record<string, string> = {
   new_mrr: 'Nouveau MRR (€ / trimestre)',
   expansion_mrr: 'MRR d’expansion (€ / trimestre)',
@@ -211,6 +226,9 @@ export default function NavettePage() {
     }
   }
 
+  // La colonne du coût par ETP n'a de sens que si le département a une ligne effectifs.
+  const hasHeadcount = defs.some((d) => d.kind === 'headcount');
+
   // Droits : le CFO gère toute navette, un Head of la sienne ; le CEO consulte et arbitre.
   const canManage = data.profile.role === 'cfo' || data.profile.department_id === effectiveDeptId;
   const canArbitrate = data.profile.role === 'cfo' || data.profile.role === 'ceo';
@@ -253,9 +271,9 @@ export default function NavettePage() {
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card title="Département" value={dept.name} />
             <Card
-              title="Enveloppe de cadrage"
+              title="Enveloppe globale"
               value={dept.envelope != null ? fmtKEur(Number(dept.envelope)) : 'Aucune'}
-              hint="Décidée au codir ; un dépassement est signalé, jamais bloqué."
+              hint="Fixée par le CFO dans Réglages ; un dépassement est signalé, jamais bloqué."
             />
             <Card
               title="Coût annuel saisi"
@@ -266,8 +284,8 @@ export default function NavettePage() {
                 dept.envelope == null
                   ? 'Estimation locale, aucune enveloppe définie.'
                   : overEnvelope
-                    ? 'Estimation locale, au-dessus de l’enveloppe de cadrage.'
-                    : 'Estimation locale, dans l’enveloppe de cadrage.'
+                    ? 'Estimation locale, au-dessus de l’enveloppe globale.'
+                    : 'Estimation locale, dans l’enveloppe globale.'
               }
             />
           </div>
@@ -318,12 +336,13 @@ export default function NavettePage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                      <th className="px-5 py-3 font-semibold">Driver</th>
+                      <th className="px-5 py-3 font-semibold">Postes</th>
+                      <th className="px-3 py-3 font-semibold">Type</th>
                       <th className="px-3 py-3 text-right font-semibold">T1</th>
                       <th className="px-3 py-3 text-right font-semibold">T2</th>
                       <th className="px-3 py-3 text-right font-semibold">T3</th>
                       <th className="px-3 py-3 text-right font-semibold">T4</th>
-                      <th className="px-5 py-3 text-right font-semibold">Coût mensuel par ETP</th>
+                      {hasHeadcount && <th className="px-5 py-3 text-right font-semibold">Coût mensuel par ETP</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -334,6 +353,9 @@ export default function NavettePage() {
                           <td className="px-5 py-2.5">
                             <p className="font-semibold text-ink">{def.label}</p>
                             <p className="text-xs text-ink/50">{KIND_LABEL[def.kind]}</p>
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Badge tone="muted">{KIND_TYPE[def.kind] ?? '-'}</Badge>
                           </td>
                           {[0, 1, 2, 3].map((i) => (
                             <td key={i} className="px-3 py-2.5 text-right">
@@ -357,23 +379,25 @@ export default function NavettePage() {
                               />
                             </td>
                           ))}
-                          <td className="px-5 py-2.5 text-right">
-                            {def.kind === 'headcount' ? (
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                disabled={!isDraft || !canManage}
-                                value={line?.unitCost ?? ''}
-                                placeholder="ex. 7500"
-                                onChange={(e) =>
-                                  setEdit((prev) => ({ ...prev, [def.id]: { ...prev[def.id], unitCost: e.target.value } }))
-                                }
-                                className={`w-28 text-right ${inputBase}`}
-                              />
-                            ) : (
-                              <span className="text-ink/30">-</span>
-                            )}
-                          </td>
+                          {hasHeadcount && (
+                            <td className="px-5 py-2.5 text-right">
+                              {def.kind === 'headcount' ? (
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  disabled={!isDraft || !canManage}
+                                  value={line?.unitCost ?? ''}
+                                  placeholder="ex. 7500"
+                                  onChange={(e) =>
+                                    setEdit((prev) => ({ ...prev, [def.id]: { ...prev[def.id], unitCost: e.target.value } }))
+                                  }
+                                  className={`w-28 text-right ${inputBase}`}
+                                />
+                              ) : (
+                                <span className="text-ink/30">-</span>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       );
                     })}

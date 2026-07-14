@@ -123,7 +123,7 @@ export default function DiffPage() {
                 <table className="mt-3 w-full text-sm">
                   <thead>
                     <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                      <th className="px-5 py-3 font-semibold">Ligne</th>
+                      <th className="px-5 py-3 font-semibold">Postes</th>
                       <th className="px-5 py-3 font-semibold">v{diff.versionBefore} (T1 à T4)</th>
                       <th className="px-5 py-3 font-semibold">v{diff.versionAfter} (T1 à T4)</th>
                       <th className="px-5 py-3 text-right font-semibold">Impact annuel</th>

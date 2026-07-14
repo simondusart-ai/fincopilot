@@ -163,6 +163,16 @@ export default function PilotagePage() {
   const selectedRes = compute && selectedYear != null ? compute.resByYear[selectedYear] : null;
   const byMonth = new Map((selectedRes?.months ?? []).map((r) => [r.month, r]));
   const lastMonth = selectedRes && selectedRes.months.length ? selectedRes.months[selectedRes.months.length - 1] : null;
+  // Alertes : seulement celles du dernier mois saisi. Si ce mois n'en produit aucune,
+  // on retombe sur le mois precedent, signale comme tel.
+  const noMonthsSaved = (selectedRes?.months.length ?? 0) === 0;
+  const lastMonthNum = lastMonth?.month ?? null;
+  const allAlerts = selectedRes?.alerts ?? [];
+  const alertsLast = lastMonthNum ? allAlerts.filter((a) => a.month === lastMonthNum) : [];
+  const alertsPrev = lastMonthNum && lastMonthNum > 1 ? allAlerts.filter((a) => a.month === lastMonthNum - 1) : [];
+  const shownAlerts = alertsLast.length > 0 ? alertsLast : alertsPrev;
+  const alertsFromPreviousMonth = alertsLast.length === 0 && alertsPrev.length > 0;
+
   const target = data.company.cac_avg_target != null ? Number(data.company.cac_avg_target) : null;
   const freeze = Number(data.company.runway_freeze_months);
   const vigilance = Number(data.company.runway_vigilance_months);
@@ -268,14 +278,17 @@ export default function PilotagePage() {
             </p>
           )}
 
-          {/* Alertes de gestion */}
-          {selectedRes && selectedRes.alerts.length > 0 && (
+          {/* Alertes de gestion du dernier mois saisi */}
+          {shownAlerts.length > 0 && (
             <div className="mt-6">
-              <h2 className="text-lg font-semibold text-ink">Alertes de gestion ({selectedRes.alerts.length}) : à arbitrer, jamais bloquantes</h2>
+              <h2 className="text-lg font-semibold text-ink">Alertes de gestion ({shownAlerts.length}) : à arbitrer, jamais bloquantes</h2>
               <ul className="mt-3 space-y-2">
-                {selectedRes.alerts.map((a, i) => (
+                {shownAlerts.map((a, i) => (
                   <li key={i} className="flex items-start gap-3 rounded-xl bg-peach px-4 py-3 text-sm text-ink">
                     <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink">{a.code}</span>
+                    {alertsFromPreviousMonth && (
+                      <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink">Mois précédent</span>
+                    )}
                     <span>{a.message}</span>
                   </li>
                 ))}
@@ -284,7 +297,7 @@ export default function PilotagePage() {
           )}
 
           {/* 2. Tableau mensuel des indicateurs */}
-          {lastMonth && (
+          {selectedRes && (
             <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
               <h2 className="px-5 pt-5 font-semibold text-ink">Indicateurs mensuels {selectedYear}</h2>
               <div className="overflow-x-auto">
@@ -303,7 +316,7 @@ export default function PilotagePage() {
                           const r = byMonth.get(i + 1);
                           return (
                             <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${solde ? 'font-semibold' : ''}`}>
-                              {r ? fmt(r) : ''}
+                              {r ? fmt(r) : noMonthsSaved ? <span className="text-ink/40">À venir</span> : ''}
                             </td>
                           );
                         })}
@@ -317,7 +330,7 @@ export default function PilotagePage() {
 
           {/* 3. Historique P&L annuel + pont budget */}
           <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <h2 className="px-5 pt-5 font-semibold text-ink">P&amp;L annuel réalisé (k€) et pont vers le budget</h2>
+            <h2 className="px-5 pt-5 font-semibold text-ink">P&amp;L annuel réalisé (k€)</h2>
             <div className="overflow-x-auto">
               <table className="mt-3 w-full text-sm">
                 <thead>
