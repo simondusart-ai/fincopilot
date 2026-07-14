@@ -137,7 +137,9 @@ export default function BusinessCasePage() {
     : data.profile.department_id ?? '';
   const targetName = data.departments.find((d) => d.id === effTarget)?.name ?? 'Aucun département';
   // Les COGS du projet peuvent etre portes par un AUTRE metier (dependance inter-metiers).
-  const effCogs = isLeader ? cogsDept || effTarget : effTarget;
+  // Tout le monde peut le PROPOSER, y compris un Head of : ce n'est qu'une proposition.
+  // Rien n'impacte la navette du metier designe tant que le CFO ou le CEO n'a pas accepte.
+  const effCogs = cogsDept || effTarget;
   const cogsName = data.departments.find((d) => d.id === effCogs)?.name ?? targetName;
 
   function setHorizonSafe(n: number) {
@@ -180,7 +182,7 @@ export default function BusinessCasePage() {
     <Page data={data}>
       <h1 className="text-2xl font-bold text-ink">Business case</h1>
       <p className="mt-1 text-sm text-ink/60">
-        Chiffrage d&apos;un projet d&apos;investissement : cash-flows, VAN et payback. Une fois proposé, le business case apparaît dans la navette du département cible, où il est arbitré (accepté ou rejeté). Un cas accepté alimente la consolidation.
+        Chiffrage d&apos;un projet d&apos;investissement : cash-flows, VAN et payback. Une fois proposé, le business case apparaît dans la navette du département porteur et dans celle du métier qui produit le service vendu (COGS), où il est arbitré par le CFO ou le CEO. Tant qu&apos;il n&apos;est pas accepté, il n&apos;impacte aucune navette ni la consolidation.
       </p>
 
       {/* Portefeuille des business cases : réservé au CFO et au CEO */}
@@ -256,14 +258,12 @@ export default function BusinessCasePage() {
           </label>
           <label className="text-sm">
             <span className="font-semibold text-ink">COGS portés par</span>
-            {isLeader ? (
-              <select value={effCogs} onChange={(e) => setCogsDept(e.target.value)} className={`mt-1 block bg-white ${inputBase}`}>
-                {data.departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
-              </select>
-            ) : (
-              <input type="text" disabled readOnly value={cogsName} className={`mt-1 block w-52 ${inputBase}`} />
-            )}
-            <span className="mt-1 block text-xs text-ink/50">Le métier qui produit le service vendu.</span>
+            <select value={effCogs} onChange={(e) => setCogsDept(e.target.value)} className={`mt-1 block bg-white ${inputBase}`}>
+              {data.departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
+            </select>
+            <span className="mt-1 block text-xs text-ink/50">
+              Le métier qui produit le service vendu. Sa navette n&apos;est impactée qu&apos;après acceptation.
+            </span>
           </label>
           <label className="text-sm">
             <span className="font-semibold text-ink">Horizon</span>
