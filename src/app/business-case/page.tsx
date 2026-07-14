@@ -101,11 +101,16 @@ export default function BusinessCasePage() {
 
   const num = (s: string) => (s.trim() === '' ? 0 : Number(s) || 0);
 
+  // Le cadrage (département cible, taux d'actualisation) est une décision de direction :
+  // le métier le subit, seuls le CFO et le CEO le modifient.
+  const isLeader = data?.profile.role === 'cfo' || data?.profile.role === 'ceo';
+  const DEFAULT_RATE_PCT = '15';
+
   const params: BusinessCaseInput = useMemo(
     () => ({
       label: label.trim() || 'Business case',
       horizonYears: horizon,
-      discountRate: (Number(ratePct) || 0) / 100,
+      discountRate: (Number(isLeader ? ratePct : DEFAULT_RATE_PCT) || 0) / 100,
       years: Array.from({ length: horizon }, (_, i) => {
         const yf = yrs[i] ?? emptyYear();
         return {
@@ -118,14 +123,18 @@ export default function BusinessCasePage() {
         };
       }),
     }),
-    [label, horizon, ratePct, yrs],
+    [label, horizon, ratePct, yrs, isLeader],
   );
   const result = useMemo(() => computeBusinessCase(params), [params]);
 
   if (loading) return <Page data={null}><Loading /></Page>;
   if (error || !data) return <Page data={null}><ErrorBox message={error ?? 'Erreur inconnue.'} /></Page>;
 
-  const effTarget = targetDept || data.profile.department_id || data.departments[0]?.id || '';
+  // Métier : la cible est figée sur son propre département. Direction : elle est choisie.
+  const effTarget = isLeader
+    ? targetDept || data.profile.department_id || data.departments[0]?.id || ''
+    : data.profile.department_id ?? '';
+  const targetName = data.departments.find((d) => d.id === effTarget)?.name ?? 'Aucun département';
 
   function setHorizonSafe(n: number) {
     setHorizon(n);
@@ -142,7 +151,6 @@ export default function BusinessCasePage() {
     try {
       const supabase = getSupabase();
       const { data: auth } = await supabase.auth.getUser();
-      const targetName = data!.departments.find((d) => d.id === effTarget)?.name ?? '';
       const { error: e } = await supabase.from('business_cases').insert({
         company_id: data!.company.id,
         department_id: data!.profile.department_id,
@@ -177,9 +185,16 @@ export default function BusinessCasePage() {
           </label>
           <label className="text-sm">
             <span className="font-semibold text-ink">Département cible</span>
-            <select value={effTarget} onChange={(e) => setTargetDept(e.target.value)} className={`mt-1 block bg-white ${inputBase}`}>
-              {data.departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
-            </select>
+            {isLeader ? (
+              <select value={effTarget} onChange={(e) => setTargetDept(e.target.value)} className={`mt-1 block bg-white ${inputBase}`}>
+                {data.departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
+              </select>
+            ) : (
+              <>
+                <input type="text" disabled readOnly value={targetName} className={`mt-1 block w-52 ${inputBase}`} />
+                <span className="mt-1 block text-xs text-ink/50">Votre département.</span>
+              </>
+            )}
           </label>
           <label className="text-sm">
             <span className="font-semibold text-ink">Horizon</span>
@@ -189,7 +204,14 @@ export default function BusinessCasePage() {
           </label>
           <label className="text-sm">
             <span className="font-semibold text-ink">Taux d&apos;actualisation (%)</span>
-            <input type="text" inputMode="decimal" value={ratePct} onChange={(e) => setRatePct(e.target.value)} className={`mt-1 block w-28 bg-white ${inputBase}`} />
+            {isLeader ? (
+              <input type="text" inputMode="decimal" value={ratePct} onChange={(e) => setRatePct(e.target.value)} className={`mt-1 block w-28 bg-white ${inputBase}`} />
+            ) : (
+              <>
+                <input type="text" disabled readOnly value={DEFAULT_RATE_PCT} className={`mt-1 block w-28 ${inputBase}`} />
+                <span className="mt-1 block text-xs text-ink/50">Fixé par la direction.</span>
+              </>
+            )}
           </label>
         </div>
 

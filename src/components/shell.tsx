@@ -83,7 +83,8 @@ export function Header({ data }: { data: PortalData | null }) {
   const roleLabel = role === 'cfo' ? 'CFO' : role === 'ceo' ? 'CEO' : dept ? `Head of ${dept.name}` : 'Head of';
 
   const links = [
-    { href: '/navette', label: 'Ma navette', show: true },
+    // Le CFO et le CEO consultent toutes les navettes ; le métier n'a que la sienne.
+    { href: '/navette', label: isLeader ? 'Navettes' : 'Ma navette', show: true },
     { href: '/dashboard', label: 'Consolidation', show: isLeader },
     { href: '/pilotage', label: 'Pilotage', show: true },
     { href: '/business-case', label: 'Business case', show: true },
