@@ -15,26 +15,7 @@ const VENDOR_SUGGESTIONS = [
   'Notion', 'Slack', 'Figma', 'AWS',
 ];
 
-/** Ligne libre en cours d'édition. */
-interface CustomEdit {
-  id: string;
-  kind: DriverKind;
-  label: string;
-  vendor: string;
-  frequency: LineFrequency;
-  isNew: boolean;
-  q: [string, string, string, string];
-  /** Réalisé du trimestre précédent, en lecture seule (non alimenté pour l'instant). */
-  prevQ4: string;
-}
-
-function statusBadge(status: string) {
-  if (status === 'accepted') return <Badge tone="accent" dot="mint">Accepté</Badge>;
-  if (status === 'rejected') return <Badge tone="danger">Rejeté</Badge>;
-  return <Badge tone="muted">Proposé</Badge>;
-}
-
-/** Pastille de type affichee par ligne (regroupement metier des kinds du moteur). */
+/** Pastille de type affichée par ligne (regroupement métier des kinds du moteur). */
 const KIND_TYPE: Record<string, string> = {
   new_mrr: 'Revenu récurrent',
   expansion_mrr: 'Revenu récurrent',
@@ -45,7 +26,6 @@ const KIND_TYPE: Record<string, string> = {
   channel_spend: 'Opex',
   cogs: 'COGS',
   capex: 'Capex',
-  // channel_customers n'est pas un poste de coût ni de revenu : c'est un volume de clients.
   channel_customers: 'Volume',
 };
 
@@ -59,7 +39,44 @@ const KIND_LABEL: Record<string, string> = {
   cogs: 'Coût des ventes, COGS (€ / trimestre)',
   channel_spend: 'Dépenses du canal (€ / trimestre)',
   channel_customers: 'Nouveaux clients du canal (nb / trimestre)',
+  capex: 'Investissement (€ / trimestre)',
 };
+
+/**
+ * Sections de la navette : structure DÉDUITE du kind de chaque ligne, jamais codée
+ * par département ni par société. Lignes du référentiel et lignes libres confondues.
+ * Une section de coût compte dans le total du département ; la Topline en est exclue.
+ */
+type SectionId = 'topline' | 'acquisition' | 'payroll' | 'cogs' | 'opex';
+interface SectionDef {
+  id: SectionId;
+  title: string;
+  kinds: DriverKind[];
+  isCost: boolean;
+  /** Type des lignes libres que l'on peut ajouter ici. Absent = section non extensible. */
+  addKind?: DriverKind;
+  addLabel?: string;
+  hasVendor?: boolean;
+}
+const SECTIONS: SectionDef[] = [
+  { id: 'topline', title: 'Topline', kinds: ['new_mrr', 'expansion_mrr', 'revenue_other'], isCost: false },
+  { id: 'acquisition', title: 'Acquisition par canal', kinds: ['channel_spend', 'channel_customers'], isCost: true },
+  { id: 'payroll', title: 'Masse salariale', kinds: ['payroll', 'headcount'], isCost: true, addKind: 'payroll', addLabel: 'Ajouter un poste' },
+  { id: 'cogs', title: 'COGS', kinds: ['cogs'], isCost: true },
+  { id: 'opex', title: 'Opex et investissements', kinds: ['opex', 'capex'], isCost: true, addKind: 'opex', addLabel: 'Ajouter une dépense', hasVendor: true },
+];
+
+/** Ligne libre en cours d'édition. */
+interface CustomEdit {
+  id: string;
+  kind: DriverKind;
+  label: string;
+  vendor: string;
+  frequency: LineFrequency;
+  isNew: boolean;
+  q: [string, string, string, string];
+  prevQ4: string;
+}
 
 interface EditLine {
   driverDefId: string;
@@ -67,15 +84,24 @@ interface EditLine {
   unitCost: string;
 }
 
+function bcStatusBadge(status: string) {
+  if (status === 'accepted') return <Badge tone="accent" dot="mint">Accepté</Badge>;
+  if (status === 'rejected') return <Badge tone="danger">Rejeté</Badge>;
+  return <Badge tone="muted">Proposé</Badge>;
+}
+
+const num = (v: string) => Number(v) || 0;
+const fmtQ = (v: number) => Math.round(v).toLocaleString('fr-FR');
+
 export default function NavettePage() {
   const { data, error, loading, reload } = usePortalData();
   const [deptId, setDeptId] = useState<string | null>(null);
   const [edit, setEdit] = useState<Record<string, EditLine>>({});
+  const [customs, setCustoms] = useState<CustomEdit[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const [note, setNote] = useState('');
-  const [customs, setCustoms] = useState<CustomEdit[]>([]);
 
   const effectiveDeptId = deptId ?? data?.profile.department_id ?? data?.departments[0]?.id ?? null;
   const dept = data?.departments.find((d) => d.id === effectiveDeptId) ?? null;
@@ -93,7 +119,6 @@ export default function NavettePage() {
   const latest: SubmissionRow | null = submissions[0] ?? null;
   const isDraft = latest?.status === 'draft';
 
-  // Initialise la grille d'édition depuis la dernière version.
   useEffect(() => {
     if (!data || !latest) {
       setEdit({});
@@ -131,25 +156,49 @@ export default function NavettePage() {
 
   const supabase = getSupabase();
 
-  /** Estimation locale du coût annuel de la navette (indicatif, avant consolidation). */
-  const driverCostEstimate = defs.reduce((total, def) => {
-    const line = edit[def.id];
-    if (!line) return total;
-    const qs = line.q.map((v) => Number(v) || 0);
-    const s = qs.reduce((a, b) => a + b, 0);
-    if (def.kind === 'headcount') return total + s * 3 * (Number(line.unitCost) || 0);
-    if (def.kind === 'payroll' || def.kind === 'opex' || def.kind === 'cogs' || def.kind === 'channel_spend') return total + s;
-    return total;
-  }, 0);
-  // Les lignes libres de coût (salaires, opex, capex) comptent dans le total du département.
-  const customCostEstimate = customs.reduce((total, c) => {
-    if (c.kind !== 'payroll' && c.kind !== 'opex' && c.kind !== 'capex' && c.kind !== 'cogs') return total;
-    return total + c.q.reduce((a, v) => a + (Number(v) || 0), 0);
-  }, 0);
-  const annualCostEstimate = driverCostEstimate + customCostEstimate;
+  const canManage = data.profile.role === 'cfo' || data.profile.department_id === effectiveDeptId;
+  const canArbitrate = data.profile.role === 'cfo' || data.profile.role === 'ceo';
+  const canEditLines = isDraft && canManage;
+  const prevQuarterLabel = `T4 ${data.company.budget_year - 1} (réalisé)`;
 
+  /** Coût d'un trimestre pour une ligne du référentiel (un volume de clients n'est pas un coût). */
+  const driverQuarterValue = (def: DriverDefRow, i: number): number => {
+    const line = edit[def.id];
+    if (!line) return 0;
+    const v = num(line.q[i]);
+    if (def.kind === 'headcount') return v * 3 * num(line.unitCost);
+    if (def.kind === 'channel_customers') return 0;
+    return v;
+  };
+
+  const sectionLines = (s: SectionDef) => ({
+    drivers: defs.filter((d) => s.kinds.includes(d.kind)),
+    customs: customs.filter((c) => s.kinds.includes(c.kind)),
+  });
+
+  /** Sous-total trimestriel d'une section (lignes classiques et libres confondues). */
+  const sectionQuarters = (s: SectionDef): number[] => {
+    const { drivers, customs: cs } = sectionLines(s);
+    const out = [0, 0, 0, 0];
+    for (const def of drivers) for (let i = 0; i < 4; i++) out[i] += driverQuarterValue(def, i);
+    for (const c of cs) for (let i = 0; i < 4; i++) out[i] += num(c.q[i]);
+    return out;
+  };
+
+  // Total du département = somme des sections de coût, Topline exclue.
+  const annualCostEstimate = SECTIONS.filter((s) => s.isCost).reduce(
+    (total, s) => total + sectionQuarters(s).reduce((a, b) => a + b, 0),
+    0,
+  );
   const overEnvelope = dept?.envelope != null && annualCostEstimate > Number(dept.envelope);
   const withinEnvelope = dept?.envelope != null && !overEnvelope;
+
+  // Une section s'affiche si elle a des lignes ; les sections extensibles restent
+  // toujours visibles pour que l'ajout soit possible dans TOUS les départements.
+  const visibleSections = SECTIONS.filter((s) => {
+    const { drivers, customs: cs } = sectionLines(s);
+    return drivers.length + cs.length > 0 || s.addKind !== undefined;
+  });
 
   function validateLocally(): string[] {
     const errs: string[] = [];
@@ -168,7 +217,6 @@ export default function NavettePage() {
         }
       }
     }
-    // Lignes libres : libellé non vide, unique, et valeurs numériques positives.
     const labels = new Set<string>();
     for (const c of customs) {
       const label = c.label.trim();
@@ -190,23 +238,20 @@ export default function NavettePage() {
       return {
         submission_id: submissionId,
         driver_def_id: def.id,
-        q1: Number(line?.q[0]) || 0,
-        q2: Number(line?.q[1]) || 0,
-        q3: Number(line?.q[2]) || 0,
-        q4: Number(line?.q[3]) || 0,
-        unit_cost: def.kind === 'headcount' ? Number(line?.unitCost) || 0 : null,
+        q1: num(line?.q[0] ?? ''),
+        q2: num(line?.q[1] ?? ''),
+        q3: num(line?.q[2] ?? ''),
+        q4: num(line?.q[3] ?? ''),
+        unit_cost: def.kind === 'headcount' ? num(line?.unitCost ?? '') : null,
       };
     });
+    if (rows.length === 0) return;
     const { error } = await supabase
       .from('submission_lines')
       .upsert(rows, { onConflict: 'submission_id,driver_def_id' });
     if (error) throw new Error(error.message);
   }
 
-  /**
-   * Persiste les lignes libres. `copy` = true pour recopier les lignes dans une
-   * NOUVELLE version (nouveaux identifiants) ; sinon on met a jour les lignes existantes.
-   */
   async function persistCustomLines(submissionId: string, copy = false) {
     if (customs.length === 0) return;
     const rows = customs.map((c) => ({
@@ -217,10 +262,10 @@ export default function NavettePage() {
       is_new: c.isNew,
       vendor: c.vendor.trim() === '' ? null : c.vendor.trim(),
       frequency: c.frequency,
-      q1: Number(c.q[0]) || 0,
-      q2: Number(c.q[1]) || 0,
-      q3: Number(c.q[2]) || 0,
-      q4: Number(c.q[3]) || 0,
+      q1: num(c.q[0]),
+      q2: num(c.q[1]),
+      q3: num(c.q[2]),
+      q4: num(c.q[3]),
     }));
     const { error } = copy
       ? await supabase.from('submission_custom_lines').insert(rows)
@@ -229,17 +274,24 @@ export default function NavettePage() {
   }
 
   async function addCustom(kind: DriverKind) {
-    if (!latest || latest.status !== 'draft') return;
+    if (!latest) {
+      setMessage('Aucune navette : créez d’abord la version v1.');
+      return;
+    }
+    if (latest.status !== 'draft') {
+      setMessage('Navette figée : créez une nouvelle version pour ajouter une ligne.');
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
-      await persistCustomLines(latest.id); // ne pas perdre les saisies en cours
+      await persistCustomLines(latest.id);
       const base = kind === 'payroll' ? 'Nouveau poste' : 'Nouvelle dépense';
       const taken = new Set(customs.map((c) => c.label.trim()));
       let label = base;
       let n = 2;
       while (taken.has(label)) label = `${base} ${n++}`;
-      const frequency: LineFrequency = kind === 'payroll' ? 'mensuel' : kind === 'capex' ? 'one_shot' : 'trimestriel';
+      const frequency: LineFrequency = kind === 'payroll' ? 'mensuel' : 'trimestriel';
       const { error } = await supabase.from('submission_custom_lines').insert({
         submission_id: latest.id,
         kind,
@@ -250,6 +302,7 @@ export default function NavettePage() {
         q1: 0, q2: 0, q3: 0, q4: 0,
       });
       if (error) throw new Error(error.message);
+      setMessage(`Ligne "${label}" ajoutée.`);
       await reload();
     } catch (e) {
       setMessage(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
@@ -259,7 +312,10 @@ export default function NavettePage() {
   }
 
   async function removeCustom(id: string) {
-    if (!latest || latest.status !== 'draft') return;
+    if (!latest || latest.status !== 'draft') {
+      setMessage('Navette figée : créez une nouvelle version pour supprimer une ligne.');
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
@@ -287,7 +343,7 @@ export default function NavettePage() {
         .single();
       if (error) throw new Error(error.message);
       await persistLines((created as SubmissionRow).id);
-      await persistCustomLines((created as SubmissionRow).id, true); // recopie les lignes libres
+      await persistCustomLines((created as SubmissionRow).id, true);
       setMessage(`Version v${version} créée en brouillon.`);
       await reload();
     } catch (e) {
@@ -356,129 +412,6 @@ export default function NavettePage() {
     }
   }
 
-  // La colonne du coût par ETP n'a de sens que si le département a une ligne effectifs.
-  const hasHeadcount = defs.some((d) => d.kind === 'headcount');
-
-  // Colonne du trimestre précédent : affichée grisée, non alimentée pour l'instant.
-  const prevQuarterLabel = `T4 ${data.company.budget_year - 1} (réalisé)`;
-
-  // Droits : le CFO gère toute navette, un Head of la sienne ; le CEO consulte et arbitre.
-  const canManage = data.profile.role === 'cfo' || data.profile.department_id === effectiveDeptId;
-  const canArbitrate = data.profile.role === 'cfo' || data.profile.role === 'ceo';
-  const deptBusinessCases = (data.businessCases ?? []).filter((bc) => bc.target_department_id === effectiveDeptId);
-  const acceptedBcAnnual = deptBusinessCases
-    .filter((bc) => bc.status === 'accepted')
-    .reduce((sum, bc) => { const y1 = computeBusinessCase(bc.params).years[0]; return sum + (y1 ? y1.salaries + y1.otherOpex : 0); }, 0);
-
-  // Lignes libres : édition réservée au brouillon, par le CFO ou le Head of du département.
-  const canEditLines = isDraft && canManage;
-  const payrollCustoms = customs.filter((c) => c.kind === 'payroll');
-  const toolCustoms = customs.filter((c) => c.kind === 'opex' || c.kind === 'capex');
-
-  const updateCustom = (id: string, patch: Partial<CustomEdit>) =>
-    setCustoms((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-  const updateCustomQ = (id: string, i: number, v: string) =>
-    setCustoms((prev) =>
-      prev.map((c) => {
-        if (c.id !== id) return c;
-        const q = [...c.q] as CustomEdit['q'];
-        q[i] = v;
-        return { ...c, q };
-      }),
-    );
-
-  function customRow(c: CustomEdit, withVendor: boolean) {
-    return (
-      <tr key={c.id} className="border-b border-lav/60 last:border-0">
-        <td className="px-5 py-2">
-          <input
-            type="text"
-            value={c.label}
-            disabled={!canEditLines}
-            onChange={(e) => updateCustom(c.id, { label: e.target.value })}
-            className={`w-52 ${inputBase}`}
-          />
-        </td>
-        {withVendor && (
-          <>
-            <td className="px-3 py-2">
-              <input
-                type="text"
-                list="vendor-suggestions"
-                value={c.vendor}
-                disabled={!canEditLines}
-                placeholder="Fournisseur"
-                onChange={(e) => updateCustom(c.id, { vendor: e.target.value })}
-                className={`w-44 ${inputBase}`}
-              />
-            </td>
-            <td className="px-3 py-2">
-              <select
-                value={c.kind}
-                disabled={!canEditLines}
-                onChange={(e) => updateCustom(c.id, { kind: e.target.value as DriverKind })}
-                className={`bg-white ${inputBase}`}
-              >
-                <option value="opex">Opex</option>
-                <option value="capex">Capex</option>
-              </select>
-            </td>
-          </>
-        )}
-        <td className="px-3 py-2">
-          <select
-            value={c.isNew ? 'new' : 'existing'}
-            disabled={!canEditLines}
-            onChange={(e) => updateCustom(c.id, { isNew: e.target.value === 'new' })}
-            className={`bg-white ${inputBase}`}
-          >
-            <option value="existing">Existant</option>
-            <option value="new">Nouveau</option>
-          </select>
-        </td>
-        <td className="px-3 py-2">
-          <select
-            value={c.frequency}
-            disabled={!canEditLines}
-            onChange={(e) => updateCustom(c.id, { frequency: e.target.value as LineFrequency })}
-            className={`bg-white ${inputBase}`}
-          >
-            <option value="mensuel">Mensuel</option>
-            <option value="trimestriel">Trimestriel</option>
-            <option value="one_shot">One shot</option>
-          </select>
-        </td>
-        <td className="px-3 py-2 text-right">
-          <input type="text" disabled readOnly value={c.prevQ4} className={`w-24 text-right ${inputBase}`} />
-        </td>
-        {[0, 1, 2, 3].map((i) => (
-          <td key={i} className="px-3 py-2 text-right">
-            <input
-              type="text"
-              inputMode="decimal"
-              value={c.q[i]}
-              disabled={!canEditLines}
-              onChange={(e) => updateCustomQ(c.id, i, e.target.value)}
-              className={`w-24 text-right ${inputBase}`}
-            />
-          </td>
-        ))}
-        {canEditLines && (
-          <td className="px-3 py-2 text-right">
-            <button
-              onClick={() => removeCustom(c.id)}
-              disabled={busy}
-              className="rounded-full border border-lav bg-white px-3 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-card-soft"
-            >
-              Supprimer
-            </button>
-          </td>
-        )}
-      </tr>
-    );
-  }
-
-  /** Decision du CFO ou du CEO sur la derniere version soumise. */
   async function decideSubmission(status: 'approved' | 'rejected') {
     if (!latest || latest.status !== 'submitted') return;
     setBusy(true);
@@ -498,7 +431,7 @@ export default function NavettePage() {
       setMessage(
         status === 'approved'
           ? `Navette v${latest.version} validée : elle reste consolidée.`
-          : `Navette v${latest.version} renvoyée au métier : elle sort de la consolidation, une nouvelle version est attendue.`,
+          : `Navette v${latest.version} renvoyée au métier : elle sort de la consolidation.`,
       );
       setNote('');
       await reload();
@@ -509,9 +442,30 @@ export default function NavettePage() {
     }
   }
 
+  const updateCustom = (id: string, patch: Partial<CustomEdit>) =>
+    setCustoms((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const updateCustomQ = (id: string, i: number, v: string) =>
+    setCustoms((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const q = [...c.q] as CustomEdit['q'];
+        q[i] = v;
+        return { ...c, q };
+      }),
+    );
+  const updateDriverQ = (defId: string, i: number, v: string) =>
+    setEdit((prev) => {
+      const next = { ...prev };
+      const l = { ...next[defId] };
+      const q = [...l.q] as EditLine['q'];
+      q[i] = v;
+      l.q = q;
+      next[defId] = l;
+      return next;
+    });
+
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
 
-  // Timeline : une entrée par événement, dans l'ordre chronologique des versions.
   const versionsAsc = [...submissions].sort((a, b) => a.version - b.version);
   const events: { key: string; badge: React.ReactNode; text: string; note?: string }[] = [];
   for (const s of versionsAsc) {
@@ -543,24 +497,20 @@ export default function NavettePage() {
   }
   const canDecide = canArbitrate && latest?.status === 'submitted';
 
+  const deptBusinessCases = (data.businessCases ?? []).filter((bc) => bc.target_department_id === effectiveDeptId);
+
   return (
     <Page data={data}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-ink">Navette budgétaire {data.company.budget_year}</h1>
           <p className="mt-1 text-sm text-ink/60">
-            Saisie trimestrielle. Une fois soumise, la version est figée : toute modification passe par une nouvelle version.
+            Saisie trimestrielle par catégorie. Une fois soumise, la version est figée : toute modification passe par une nouvelle version.
           </p>
         </div>
         {(data.profile.role === 'cfo' || data.profile.role === 'ceo') && (
-          <select
-            value={effectiveDeptId ?? ''}
-            onChange={(e) => setDeptId(e.target.value)}
-            className={`bg-white ${inputBase}`}
-          >
-            {data.departments.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
+          <select value={effectiveDeptId ?? ''} onChange={(e) => setDeptId(e.target.value)} className={`bg-white ${inputBase}`}>
+            {data.departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
           </select>
         )}
       </div>
@@ -583,21 +533,20 @@ export default function NavettePage() {
               dot={withinEnvelope}
               hint={
                 dept.envelope == null
-                  ? 'Estimation locale, aucune enveloppe définie.'
+                  ? 'Somme des sections de coût, Topline exclue.'
                   : overEnvelope
-                    ? 'Estimation locale, au-dessus de l’enveloppe globale.'
-                    : 'Estimation locale, dans l’enveloppe globale.'
+                    ? 'Somme des sections de coût, au-dessus de l’enveloppe globale.'
+                    : 'Somme des sections de coût, dans l’enveloppe globale.'
               }
             />
           </div>
 
-          {/* Suivi de la navette : timeline des versions et des décisions */}
+          {/* Suivi de la navette */}
           <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="font-semibold text-ink">Suivi de la navette</h2>
               {latest && <Badge tone="muted">Version v{latest.version}</Badge>}
             </div>
-
             {events.length === 0 ? (
               <p className="mt-2 text-sm text-ink/60">Aucune version pour l’instant.</p>
             ) : (
@@ -614,49 +563,37 @@ export default function NavettePage() {
                 ))}
               </ol>
             )}
-
             {canManage && (
               <div className="mt-5 flex flex-wrap gap-2">
                 {isDraft ? (
                   <>
-                    <button onClick={saveDraft} disabled={busy} className={btnSecondary}>
-                      Enregistrer le brouillon
-                    </button>
-                    <button onClick={submitVersion} disabled={busy} className={btnPrimary}>
-                      Soumettre la navette
-                    </button>
+                    <button onClick={saveDraft} disabled={busy} className={btnSecondary}>Enregistrer le brouillon</button>
+                    <button onClick={submitVersion} disabled={busy} className={btnPrimary}>Soumettre la navette</button>
                   </>
                 ) : (
-                  <button onClick={createVersion} disabled={busy || defs.length === 0} className={btnPrimary}>
+                  <button onClick={createVersion} disabled={busy} className={btnPrimary}>
                     {latest ? `Nouvelle version (v${latest.version + 1})` : 'Créer la navette v1'}
                   </button>
                 )}
               </div>
             )}
-
+            {canManage && !isDraft && latest && (
+              <p className="mt-3 text-xs text-ink/50">
+                Navette figée : créez une nouvelle version pour modifier les lignes ou en ajouter.
+              </p>
+            )}
             {canDecide && (
               <div className="mt-5 border-t border-lav/60 pt-4">
                 <p className="text-sm font-semibold text-ink">Décision sur la v{latest!.version} soumise</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder="Motif (facultatif)"
-                    className={`w-72 bg-white ${inputBase}`}
-                  />
-                  <button onClick={() => decideSubmission('approved')} disabled={busy} className={btnPrimary}>
-                    Valider
-                  </button>
-                  <button onClick={() => decideSubmission('rejected')} disabled={busy} className={btnSecondary}>
-                    Renvoyer
-                  </button>
+                  <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motif (facultatif)" className={`w-72 bg-white ${inputBase}`} />
+                  <button onClick={() => decideSubmission('approved')} disabled={busy} className={btnPrimary}>Valider</button>
+                  <button onClick={() => decideSubmission('rejected')} disabled={busy} className={btnSecondary}>Renvoyer</button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Encart d'erreurs de soumission */}
           {problems.length > 0 && (
             <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4">
               <p className="text-sm font-semibold text-red-700">Soumission refusée : corrigez d’abord ces points.</p>
@@ -666,215 +603,190 @@ export default function NavettePage() {
             </div>
           )}
 
-          {/* Tableau de saisie */}
-          <div className="mt-4 overflow-hidden rounded-2xl bg-white shadow-sm">
-            {defs.length === 0 ? (
-              <p className="p-5 text-sm text-ink/50">Aucun driver défini pour ce département (voir Réglages).</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                      <th className="px-5 py-3 font-semibold">Postes</th>
-                      <th className="px-3 py-3 font-semibold">Type</th>
-                      <th className="px-3 py-3 text-right font-semibold">{prevQuarterLabel}</th>
-                      <th className="px-3 py-3 text-right font-semibold">T1</th>
-                      <th className="px-3 py-3 text-right font-semibold">T2</th>
-                      <th className="px-3 py-3 text-right font-semibold">T3</th>
-                      <th className="px-3 py-3 text-right font-semibold">T4</th>
-                      {hasHeadcount && <th className="px-5 py-3 text-right font-semibold">Coût mensuel par ETP</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {defs.map((def: DriverDefRow) => {
-                      const line = edit[def.id];
-                      return (
-                        <tr key={def.id} className="border-b border-lav/60 last:border-0">
-                          <td className="px-5 py-2.5">
-                            <p className="font-semibold text-ink">{def.label}</p>
-                            <p className="text-xs text-ink/50">{KIND_LABEL[def.kind]}</p>
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <Badge tone="muted">{KIND_TYPE[def.kind] ?? '-'}</Badge>
-                          </td>
-                          <td className="px-3 py-2.5 text-right">
-                            <input
-                              type="text"
-                              disabled
-                              readOnly
-                              value={def.prev_q4 != null ? String(def.prev_q4) : ''}
-                              className={`w-24 text-right ${inputBase}`}
-                            />
-                          </td>
-                          {[0, 1, 2, 3].map((i) => (
-                            <td key={i} className="px-3 py-2.5 text-right">
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                disabled={!isDraft || !canManage}
-                                value={line?.q[i] ?? '0'}
-                                onChange={(e) =>
-                                  setEdit((prev) => {
-                                    const next = { ...prev };
-                                    const l = { ...next[def.id] };
-                                    const q = [...l.q] as EditLine['q'];
-                                    q[i] = e.target.value;
-                                    l.q = q;
-                                    next[def.id] = l;
-                                    return next;
-                                  })
-                                }
-                                className={`w-24 text-right ${inputBase}`}
-                              />
-                            </td>
-                          ))}
-                          {hasHeadcount && (
-                            <td className="px-5 py-2.5 text-right">
-                              {def.kind === 'headcount' ? (
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  disabled={!isDraft || !canManage}
-                                  value={line?.unitCost ?? ''}
-                                  placeholder="ex. 7500"
-                                  onChange={(e) =>
-                                    setEdit((prev) => ({ ...prev, [def.id]: { ...prev[def.id], unitCost: e.target.value } }))
-                                  }
-                                  className={`w-28 text-right ${inputBase}`}
-                                />
-                              ) : (
-                                <span className="text-ink/30">-</span>
-                              )}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Suggestions de fournisseurs, partagées par les champs "Fournisseur" */}
           <datalist id="vendor-suggestions">
             {VENDOR_SUGGESTIONS.map((v) => (<option key={v} value={v} />))}
           </datalist>
 
-          {/* Lignes libres : masse salariale (une ligne par ETP) */}
-          <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
-              <h2 className="font-semibold text-ink">Masse salariale</h2>
-              <span className="text-xs text-ink/50">Une ligne par ETP, libellé = fonction.</span>
-              {canEditLines && (
-                <button onClick={() => addCustom('payroll')} disabled={busy} className={`${btnSecondary} ml-auto`}>
-                  Ajouter un poste
-                </button>
-              )}
-            </div>
-            {payrollCustoms.length === 0 ? (
-              <p className="p-5 text-sm text-ink/50">Aucun poste saisi.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="mt-3 w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                      <th className="px-5 py-3 font-semibold">Poste</th>
-                      <th className="px-3 py-3 font-semibold">Statut</th>
-                      <th className="px-3 py-3 font-semibold">Fréquence</th>
-                      <th className="px-3 py-3 text-right font-semibold">{prevQuarterLabel}</th>
-                      <th className="px-3 py-3 text-right font-semibold">T1</th>
-                      <th className="px-3 py-3 text-right font-semibold">T2</th>
-                      <th className="px-3 py-3 text-right font-semibold">T3</th>
-                      <th className="px-3 py-3 text-right font-semibold">T4</th>
-                      {canEditLines && <th className="px-3 py-3" />}
-                    </tr>
-                  </thead>
-                  <tbody>{payrollCustoms.map((c) => customRow(c, false))}</tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          {/* Sections par catégorie, déduites du kind des lignes */}
+          {visibleSections.map((s) => {
+            const { drivers, customs: cs } = sectionLines(s);
+            const subtotal = sectionQuarters(s);
+            const hasHeadcount = drivers.some((d) => d.kind === 'headcount');
+            const extensible = s.addKind !== undefined;
+            const empty = drivers.length + cs.length === 0;
+            return (
+              <div key={s.id} className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
+                <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
+                  <h2 className="font-semibold text-ink">{s.title}</h2>
+                  {!s.isCost && <span className="text-xs text-ink/50">Hors total du département.</span>}
+                  {extensible && canEditLines && (
+                    <button onClick={() => addCustom(s.addKind!)} disabled={busy} className={`${btnSecondary} ml-auto`}>
+                      {s.addLabel}
+                    </button>
+                  )}
+                </div>
 
-          {/* Lignes libres : outils et dépenses (opex ou capex, avec fournisseur) */}
-          <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
-              <h2 className="font-semibold text-ink">Outils et dépenses</h2>
-              <span className="text-xs text-ink/50">Opex ou capex, un fournisseur par ligne.</span>
-              {canEditLines && (
-                <button onClick={() => addCustom('opex')} disabled={busy} className={`${btnSecondary} ml-auto`}>
-                  Ajouter une dépense
-                </button>
-              )}
-            </div>
-            {toolCustoms.length === 0 ? (
-              <p className="p-5 text-sm text-ink/50">Aucune dépense saisie.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="mt-3 w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                      <th className="px-5 py-3 font-semibold">Outil</th>
-                      <th className="px-3 py-3 font-semibold">Fournisseur</th>
-                      <th className="px-3 py-3 font-semibold">Type</th>
-                      <th className="px-3 py-3 font-semibold">Statut</th>
-                      <th className="px-3 py-3 font-semibold">Fréquence</th>
-                      <th className="px-3 py-3 text-right font-semibold">{prevQuarterLabel}</th>
-                      <th className="px-3 py-3 text-right font-semibold">T1</th>
-                      <th className="px-3 py-3 text-right font-semibold">T2</th>
-                      <th className="px-3 py-3 text-right font-semibold">T3</th>
-                      <th className="px-3 py-3 text-right font-semibold">T4</th>
-                      {canEditLines && <th className="px-3 py-3" />}
-                    </tr>
-                  </thead>
-                  <tbody>{toolCustoms.map((c) => customRow(c, true))}</tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                {empty ? (
+                  <p className="p-5 text-sm text-ink/50">
+                    Aucune ligne dans cette section.{extensible && !canEditLines ? ' Créez une nouvelle version pour en ajouter.' : ''}
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="mt-3 w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                          <th className="px-5 py-3 font-semibold">Postes</th>
+                          <th className="px-3 py-3 font-semibold">Type</th>
+                          {s.hasVendor && <th className="px-3 py-3 font-semibold">Fournisseur</th>}
+                          {extensible && <th className="px-3 py-3 font-semibold">Statut</th>}
+                          {extensible && <th className="px-3 py-3 font-semibold">Fréquence</th>}
+                          <th className="px-3 py-3 text-right font-semibold">{prevQuarterLabel}</th>
+                          <th className="px-3 py-3 text-right font-semibold">T1</th>
+                          <th className="px-3 py-3 text-right font-semibold">T2</th>
+                          <th className="px-3 py-3 text-right font-semibold">T3</th>
+                          <th className="px-3 py-3 text-right font-semibold">T4</th>
+                          {hasHeadcount && <th className="px-5 py-3 text-right font-semibold">Coût mensuel par ETP</th>}
+                          {extensible && canEditLines && <th className="px-3 py-3" />}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* Lignes du référentiel */}
+                        {drivers.map((def) => (
+                          <tr key={def.id} className="border-b border-lav/60">
+                            <td className="px-5 py-2.5">
+                              <p className="font-semibold text-ink">{def.label}</p>
+                              <p className="text-xs text-ink/50">{KIND_LABEL[def.kind]}</p>
+                            </td>
+                            <td className="px-3 py-2.5"><Badge tone="muted">{KIND_TYPE[def.kind] ?? '-'}</Badge></td>
+                            {s.hasVendor && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                            {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                            {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                            <td className="px-3 py-2.5 text-right">
+                              <input type="text" disabled readOnly value={def.prev_q4 != null ? String(def.prev_q4) : ''} className={`w-24 text-right ${inputBase}`} />
+                            </td>
+                            {[0, 1, 2, 3].map((i) => (
+                              <td key={i} className="px-3 py-2.5 text-right">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  disabled={!canEditLines}
+                                  value={edit[def.id]?.q[i] ?? '0'}
+                                  onChange={(e) => updateDriverQ(def.id, i, e.target.value)}
+                                  className={`w-24 text-right ${inputBase}`}
+                                />
+                              </td>
+                            ))}
+                            {hasHeadcount && (
+                              <td className="px-5 py-2.5 text-right">
+                                {def.kind === 'headcount' ? (
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    disabled={!canEditLines}
+                                    value={edit[def.id]?.unitCost ?? ''}
+                                    placeholder="ex. 7500"
+                                    onChange={(e) => setEdit((prev) => ({ ...prev, [def.id]: { ...prev[def.id], unitCost: e.target.value } }))}
+                                    className={`w-28 text-right ${inputBase}`}
+                                  />
+                                ) : (
+                                  <span className="text-ink/30">-</span>
+                                )}
+                              </td>
+                            )}
+                            {extensible && canEditLines && <td />}
+                          </tr>
+                        ))}
 
+                        {/* Lignes libres du métier */}
+                        {cs.map((c) => (
+                          <tr key={c.id} className="border-b border-lav/60">
+                            <td className="px-5 py-2">
+                              <input type="text" value={c.label} disabled={!canEditLines} onChange={(e) => updateCustom(c.id, { label: e.target.value })} className={`w-52 ${inputBase}`} />
+                            </td>
+                            <td className="px-3 py-2">
+                              {s.hasVendor ? (
+                                <select value={c.kind} disabled={!canEditLines} onChange={(e) => updateCustom(c.id, { kind: e.target.value as DriverKind })} className={`bg-white ${inputBase}`}>
+                                  <option value="opex">Opex</option>
+                                  <option value="capex">Capex</option>
+                                </select>
+                              ) : (
+                                <Badge tone="muted">{KIND_TYPE[c.kind] ?? '-'}</Badge>
+                              )}
+                            </td>
+                            {s.hasVendor && (
+                              <td className="px-3 py-2">
+                                <input type="text" list="vendor-suggestions" value={c.vendor} disabled={!canEditLines} placeholder="Fournisseur" onChange={(e) => updateCustom(c.id, { vendor: e.target.value })} className={`w-40 ${inputBase}`} />
+                              </td>
+                            )}
+                            <td className="px-3 py-2">
+                              <select value={c.isNew ? 'new' : 'existing'} disabled={!canEditLines} onChange={(e) => updateCustom(c.id, { isNew: e.target.value === 'new' })} className={`bg-white ${inputBase}`}>
+                                <option value="existing">Existant</option>
+                                <option value="new">Nouveau</option>
+                              </select>
+                            </td>
+                            <td className="px-3 py-2">
+                              <select value={c.frequency} disabled={!canEditLines} onChange={(e) => updateCustom(c.id, { frequency: e.target.value as LineFrequency })} className={`bg-white ${inputBase}`}>
+                                <option value="mensuel">Mensuel</option>
+                                <option value="trimestriel">Trimestriel</option>
+                                <option value="one_shot">One shot</option>
+                              </select>
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <input type="text" disabled readOnly value={c.prevQ4} className={`w-24 text-right ${inputBase}`} />
+                            </td>
+                            {[0, 1, 2, 3].map((i) => (
+                              <td key={i} className="px-3 py-2 text-right">
+                                <input type="text" inputMode="decimal" value={c.q[i]} disabled={!canEditLines} onChange={(e) => updateCustomQ(c.id, i, e.target.value)} className={`w-24 text-right ${inputBase}`} />
+                              </td>
+                            ))}
+                            {hasHeadcount && <td className="px-5 py-2 text-right text-ink/30">-</td>}
+                            {canEditLines && (
+                              <td className="px-3 py-2 text-right">
+                                <button onClick={() => removeCustom(c.id)} disabled={busy} className="rounded-full border border-lav bg-white px-3 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-card-soft">
+                                  Supprimer
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+
+                        {/* Sous-total de section */}
+                        <tr className="bg-lav">
+                          <td className="px-5 py-2 font-semibold">Sous-total {s.title.toLowerCase()}</td>
+                          <td />
+                          {s.hasVendor && <td />}
+                          {extensible && <td />}
+                          {extensible && <td />}
+                          <td />
+                          {subtotal.map((v, i) => (
+                            <td key={i} className="px-3 py-2 text-right font-semibold tabular-nums">{fmtQ(v)}</td>
+                          ))}
+                          {hasHeadcount && <td />}
+                          {extensible && canEditLines && <td />}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Business cases proposés sur ce département */}
           {deptBusinessCases.length > 0 && (
             <div className="mt-6">
               <h2 className="text-lg font-semibold text-ink">Business cases proposés ({deptBusinessCases.length})</h2>
-              <p className="mt-1 text-sm text-ink/60">
-                Chaque proposition est ventilée en lignes distinctes. Un business case accepté s&apos;ajoute à la masse salariale et aux opex du département, et à la consolidation.
-              </p>
               <div className="mt-3 space-y-3">
                 {deptBusinessCases.map((bc) => {
                   const y1 = computeBusinessCase(bc.params).years[0];
-                  const salQ = (y1?.salaries ?? 0) / 4;
-                  const opxQ = (y1?.otherOpex ?? 0) / 4;
-                  const impact = (y1?.salaries ?? 0) + (y1?.otherOpex ?? 0);
+                  const impact = (y1?.salaries ?? 0) + (y1?.otherOpex ?? 0) + (y1?.investment ?? 0);
                   const suffix = bc.status === 'accepted' ? ' (compté)' : bc.status === 'rejected' ? ' (écarté)' : ' (si accepté)';
                   return (
                     <div key={bc.id} className="rounded-2xl bg-white p-4 shadow-sm">
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="font-semibold text-ink">{bc.label}</span>
-                        {statusBadge(bc.status)}
+                        {bcStatusBadge(bc.status)}
                         <span className="text-xs text-ink/50">Impact année 1 : {fmtKEur(impact)}{suffix}</span>
-                      </div>
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                              <th className="px-3 py-2 font-semibold">Ligne du business case</th>
-                              <th className="px-3 py-2 text-right font-semibold">T1</th>
-                              <th className="px-3 py-2 text-right font-semibold">T2</th>
-                              <th className="px-3 py-2 text-right font-semibold">T3</th>
-                              <th className="px-3 py-2 text-right font-semibold">T4</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr className="border-b border-lav/60">
-                              <td className="px-3 py-1.5 text-ink/70">{bc.label} : salaires</td>
-                              {[0, 1, 2, 3].map((i) => (<td key={i} className="px-3 py-1.5 text-right tabular-nums">{Math.round(salQ).toLocaleString('fr-FR')}</td>))}
-                            </tr>
-                            <tr>
-                              <td className="px-3 py-1.5 text-ink/70">{bc.label} : opex</td>
-                              {[0, 1, 2, 3].map((i) => (<td key={i} className="px-3 py-1.5 text-right tabular-nums">{Math.round(opxQ).toLocaleString('fr-FR')}</td>))}
-                            </tr>
-                          </tbody>
-                        </table>
                       </div>
                       {canArbitrate && (
                         <div className="mt-3 flex gap-2">
@@ -886,11 +798,6 @@ export default function NavettePage() {
                   );
                 })}
               </div>
-              {acceptedBcAnnual > 0 && (
-                <p className="mt-3 text-sm text-ink/70">
-                  Business cases acceptés : +{fmtKEur(acceptedBcAnnual)} sur le coût annuel du département, intégrés à la consolidation.
-                </p>
-              )}
             </div>
           )}
 
