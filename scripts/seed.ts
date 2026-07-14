@@ -194,8 +194,28 @@ async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
       q4: l.q[3],
       unit_cost: l.unitCost ?? null,
     }));
-    const { error: lErr } = await sb.from('submission_lines').insert(rows);
-    if (lErr) throw new Error(lErr.message);
+    if (rows.length > 0) {
+      const { error: lErr } = await sb.from('submission_lines').insert(rows);
+      if (lErr) throw new Error(lErr.message);
+    }
+
+    // Lignes libres du metier (postes nominatifs, outils nommes).
+    if (sub.customLines && sub.customLines.length > 0) {
+      const customRows = sub.customLines.map((c) => ({
+        submission_id: data.id,
+        kind: c.kind,
+        label: c.label,
+        is_new: c.isNew,
+        vendor: c.vendor ?? null,
+        frequency: c.frequency,
+        q1: c.q[0],
+        q2: c.q[1],
+        q3: c.q[2],
+        q4: c.q[3],
+      }));
+      const { error: clErr } = await sb.from('submission_custom_lines').insert(customRows);
+      if (clErr) throw new Error(clErr.message);
+    }
   }
 
   // Historique realise (P&L annuel et indicateurs mensuels). L'annee des mensuels

@@ -59,6 +59,8 @@ export interface DriverDefRow {
   channel_id: string | null;
   monthly_key: string | null;
   sort: number;
+  /** Réalisé du trimestre précédent. Non alimenté pour l'instant (voir Limites). */
+  prev_q4: number | null;
 }
 
 export interface ProfileRow {

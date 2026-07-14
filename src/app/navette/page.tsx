@@ -23,6 +23,8 @@ interface CustomEdit {
   frequency: LineFrequency;
   isNew: boolean;
   q: [string, string, string, string];
+  /** Réalisé du trimestre précédent, en lecture seule (non alimenté pour l'instant). */
+  prevQ4: string;
 }
 
 function statusBadge(status: string) {
@@ -108,6 +110,7 @@ export default function NavettePage() {
           frequency: c.frequency,
           isNew: c.is_new,
           q: [String(c.q1), String(c.q2), String(c.q3), String(c.q4)] as [string, string, string, string],
+          prevQ4: c.prev_q4 != null ? String(c.prev_q4) : '',
         })),
     );
     const byDef: Record<string, EditLine> = {};
@@ -355,6 +358,9 @@ export default function NavettePage() {
   // La colonne du coût par ETP n'a de sens que si le département a une ligne effectifs.
   const hasHeadcount = defs.some((d) => d.kind === 'headcount');
 
+  // Colonne du trimestre précédent : affichée grisée, non alimentée pour l'instant.
+  const prevQuarterLabel = `T4 ${data.company.budget_year - 1} (réalisé)`;
+
   // Droits : le CFO gère toute navette, un Head of la sienne ; le CEO consulte et arbitre.
   const canManage = data.profile.role === 'cfo' || data.profile.department_id === effectiveDeptId;
   const canArbitrate = data.profile.role === 'cfo' || data.profile.role === 'ceo';
@@ -440,6 +446,9 @@ export default function NavettePage() {
             <option value="trimestriel">Trimestriel</option>
             <option value="one_shot">One shot</option>
           </select>
+        </td>
+        <td className="px-3 py-2 text-right">
+          <input type="text" disabled readOnly value={c.prevQ4} className={`w-24 text-right ${inputBase}`} />
         </td>
         {[0, 1, 2, 3].map((i) => (
           <td key={i} className="px-3 py-2 text-right">
@@ -667,6 +676,7 @@ export default function NavettePage() {
                     <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
                       <th className="px-5 py-3 font-semibold">Postes</th>
                       <th className="px-3 py-3 font-semibold">Type</th>
+                      <th className="px-3 py-3 text-right font-semibold">{prevQuarterLabel}</th>
                       <th className="px-3 py-3 text-right font-semibold">T1</th>
                       <th className="px-3 py-3 text-right font-semibold">T2</th>
                       <th className="px-3 py-3 text-right font-semibold">T3</th>
@@ -685,6 +695,15 @@ export default function NavettePage() {
                           </td>
                           <td className="px-3 py-2.5">
                             <Badge tone="muted">{KIND_TYPE[def.kind] ?? '-'}</Badge>
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <input
+                              type="text"
+                              disabled
+                              readOnly
+                              value={def.prev_q4 != null ? String(def.prev_q4) : ''}
+                              className={`w-24 text-right ${inputBase}`}
+                            />
                           </td>
                           {[0, 1, 2, 3].map((i) => (
                             <td key={i} className="px-3 py-2.5 text-right">
@@ -762,6 +781,7 @@ export default function NavettePage() {
                       <th className="px-5 py-3 font-semibold">Poste</th>
                       <th className="px-3 py-3 font-semibold">Statut</th>
                       <th className="px-3 py-3 font-semibold">Fréquence</th>
+                      <th className="px-3 py-3 text-right font-semibold">{prevQuarterLabel}</th>
                       <th className="px-3 py-3 text-right font-semibold">T1</th>
                       <th className="px-3 py-3 text-right font-semibold">T2</th>
                       <th className="px-3 py-3 text-right font-semibold">T3</th>
@@ -798,6 +818,7 @@ export default function NavettePage() {
                       <th className="px-3 py-3 font-semibold">Type</th>
                       <th className="px-3 py-3 font-semibold">Statut</th>
                       <th className="px-3 py-3 font-semibold">Fréquence</th>
+                      <th className="px-3 py-3 text-right font-semibold">{prevQuarterLabel}</th>
                       <th className="px-3 py-3 text-right font-semibold">T1</th>
                       <th className="px-3 py-3 text-right font-semibold">T2</th>
                       <th className="px-3 py-3 text-right font-semibold">T3</th>

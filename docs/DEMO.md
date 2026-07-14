@@ -1,4 +1,4 @@
-# Déroulé de démonstration (10 minutes)
+# Déroulé de démonstration (11 minutes)
 
 Préparation, avant la restitution : `npm run seed` pour remettre la démo à zéro ; deux fenêtres de navigateur prêtes (une normale connectée en `cfo@fincopilot.demo`, une privée connectée en `growth@fincopilot.demo`) ; le serveur qui tourne ; une fenêtre de terminal ouverte sur le repo.
 
@@ -20,7 +20,9 @@ Préparation, avant la restitution : `npm run seed` pour remettre la démo à z�
 
 **8. Le business case, décider et arbitrer (1 min 30).** Onglet Business case : saisir en direct les hypothèses du projet CGP en lecture défavorable (revenus 200/600/1200 K, coûts récurrents 800/1600/3200 K, une équipe dédiée, invest de lancement en année 1), cibler FA&P. Le moteur sort une VAN négative, un cumul de -4 300 K et un payback non atteint : constat factuel. Proposer le business case, puis ouvrir la navette FA&P : il y figure en lignes distinctes (salaires, opex), en attente. Le CFO ou le CEO l'accepte ou le rejette d'un clic ; accepté, il s'ajoute à la masse salariale du département et à la consolidation, rejeté il reste sans effet. C'est l'arbitrage de la Section 2, tracé et chiffré.
 
-**9. Sous le capot et roadmap (45 s).** Terminal : `npm test`, 62 tests verts, calculs vérifiés à la main, aucun chiffre rédigé par IA. Roadmap : reprise des réalisés depuis la comptabilité, NRR par cohorte client par client, workflow d'approbation, multi-tenant.
+**9. Le workflow de validation, la navette telle qu'on la vit (1 min 30).** Ouvrir la navette Sales : elle n'est plus une grille de drivers abstraits mais des lignes libres nommées (Head of Sales, Sales executive 1 à 3, Hubspot, Aircall, Lemlist), chacune marquée existante ou nouvelle, avec sa fréquence de décaissement. Se connecter en `ceo@fincopilot.demo`, la renvoyer au métier avec un motif ("Le troisième Sales executive n'est pas finançable au T2"). Côté Head of Sales : la timeline affiche "v1 renvoyée le JJ/MM/AAAA : motif", la navette sort de la consolidation, il crée une v2 qui reprend automatiquement ses lignes libres, corrige, resoumet. Le CFO ou le CEO valide : la v2 est consolidée. Le budget cesse d'être un fichier, il devient une conversation tracée.
+
+**10. Sous le capot et roadmap (45 s).** Terminal : `npm test`, 87 tests verts, calculs vérifiés à la main, aucun chiffre rédigé par IA. Roadmap : reprise des réalisés depuis la comptabilité (le réalisé poste par poste alimentera la colonne T-1), NRR par cohorte client par client, multi-tenant.
 
 ## Plans de secours
 

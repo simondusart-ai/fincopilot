@@ -4,8 +4,10 @@ import type {
   CompanyConfig,
   ConsolidationInputs,
   DriverKind,
+  LineFrequency,
   QuarterValues,
   Submission,
+  SubmissionLine,
 } from './engine';
 
 /**
@@ -49,11 +51,23 @@ export interface SeedLine {
   unitCost?: number;
 }
 
+/** Ligne libre du métier dans une navette de démonstration. */
+export interface SeedCustomLine {
+  id: string; // slug local
+  kind: DriverKind;
+  label: string;
+  isNew: boolean;
+  vendor?: string;
+  frequency: LineFrequency;
+  q: QuarterValues;
+}
+
 export interface SeedSubmission {
   departmentId: string;
   version: number;
   status: 'draft' | 'submitted';
   lines: SeedLine[];
+  customLines?: SeedCustomLine[];
 }
 
 export interface SeedUser {
@@ -149,9 +163,7 @@ export const FINCOPILOT: SeedCompany = {
     // Sales
     { id: 'fc-sal-mrr', departmentId: 'fc-sales', code: 'NEW_MRR_B2B', label: 'New MRR partenariats B2B', kind: 'new_mrr', sort: 1 },
     { id: 'fc-sal-oneoff', departmentId: 'fc-sales', code: 'ONE_SHOT', label: 'Revenus one-shot (dossiers à l’acte)', kind: 'revenue_other', monthlyKey: 'saison_fiscale', sort: 2 },
-    { id: 'fc-sal-pay-head', departmentId: 'fc-sales', code: 'MS_HEAD', label: 'Masse salariale : Head of Sales', kind: 'payroll', sort: 3 },
-    { id: 'fc-sal-pay-team', departmentId: 'fc-sales', code: 'MS_TEAM', label: 'Masse salariale : équipe Sales', kind: 'payroll', sort: 4 },
-    { id: 'fc-sal-opex', departmentId: 'fc-sales', code: 'OPEX', label: 'Outils & déplacements', kind: 'opex', sort: 5 },
+    // La masse salariale et les outils de Sales sont saisis en lignes libres (voir la navette).
     // Growth : un couple dépenses / clients par canal
     { id: 'fc-grw-sea-s', departmentId: 'fc-growth', code: 'SEA_SPEND', label: 'Dépenses SEA', kind: 'channel_spend', channelId: 'fc-sea', sort: 1 },
     { id: 'fc-grw-sea-c', departmentId: 'fc-growth', code: 'SEA_CUST', label: 'Nouveaux clients SEA', kind: 'channel_customers', channelId: 'fc-sea', sort: 2 },
@@ -190,9 +202,23 @@ export const FINCOPILOT: SeedCompany = {
       lines: [
         { driverDefId: 'fc-sal-mrr', q: q(15, 18, 20, 22) },
         { driverDefId: 'fc-sal-oneoff', q: q(700, 750, 750, 700) },
-        { driverDefId: 'fc-sal-pay-head', q: q(45, 45, 45, 45) },
-        { driverDefId: 'fc-sal-pay-team', q: q(180, 190, 200, 210) },
-        { driverDefId: 'fc-sal-opex', q: q(30, 30, 30, 30) },
+      ],
+      /*
+       * Lignes libres : ETP nominatifs et outils nommés. Les totaux trimestriels sont
+       * rigoureusement identiques à l'ancienne structure par drivers :
+       * - masse salariale 225 / 235 / 245 / 255 K (Head 45 + SE1 90 + SE2 90 + SE3 0/10/20/30) ;
+       * - outils 30 K par trimestre (Hubspot 15 + Aircall 10 + Lemlist 5).
+       * Fréquence mensuelle : la mensualisation reste celle des anciennes lignes (1/3 par mois),
+       * donc la consolidation est inchangée et les tests de cohérence du seed restent verts.
+       */
+      customLines: [
+        { id: 'fc-sal-head', kind: 'payroll', label: 'Head of Sales', isNew: false, frequency: 'mensuel', q: q(45, 45, 45, 45) },
+        { id: 'fc-sal-se1', kind: 'payroll', label: 'Sales executive 1', isNew: false, frequency: 'mensuel', q: q(90, 90, 90, 90) },
+        { id: 'fc-sal-se2', kind: 'payroll', label: 'Sales executive 2', isNew: false, frequency: 'mensuel', q: q(90, 90, 90, 90) },
+        { id: 'fc-sal-se3', kind: 'payroll', label: 'Sales executive 3', isNew: true, frequency: 'mensuel', q: q(0, 10, 20, 30) },
+        { id: 'fc-sal-hubspot', kind: 'opex', label: 'Hubspot', vendor: 'Hubspot', isNew: false, frequency: 'mensuel', q: q(15, 15, 15, 15) },
+        { id: 'fc-sal-aircall', kind: 'opex', label: 'Aircall', vendor: 'Aircall', isNew: false, frequency: 'mensuel', q: q(10, 10, 10, 10) },
+        { id: 'fc-sal-lemlist', kind: 'opex', label: 'Lemlist', vendor: 'Lemlist', isNew: true, frequency: 'mensuel', q: q(5, 5, 5, 5) },
       ],
     },
     // Growth v1 : avant arbitrage. Enveloppe dépassée, CAC SEA et Social hors plafonds.
@@ -414,12 +440,21 @@ export function seedToEngineInputs(seed: SeedCompany): ConsolidationInputs {
     const cur = latest.get(s.departmentId);
     if (!cur || s.version > cur.version) latest.set(s.departmentId, s);
   }
-  const submissions: Submission[] = [...latest.values()].map((s) => ({
-    departmentId: s.departmentId,
-    version: s.version,
-    status: s.status,
-    lines: s.lines.map((l) => ({ driverDefId: l.driverDefId, q: l.q, unitCost: l.unitCost })),
-  }));
+  const submissions: Submission[] = [...latest.values()].map((s) => {
+    const lines: SubmissionLine[] = s.lines.map((l) => ({ driverDefId: l.driverDefId, q: l.q, unitCost: l.unitCost }));
+    for (const c of s.customLines ?? []) {
+      lines.push({
+        id: c.id,
+        kind: c.kind,
+        label: c.label,
+        frequency: c.frequency,
+        q: c.q,
+        isNew: c.isNew,
+        vendor: c.vendor,
+      });
+    }
+    return { departmentId: s.departmentId, version: s.version, status: s.status, lines };
+  });
   return {
     config: seed.config,
     departments: seed.departments.map((d) => ({
