@@ -12,3 +12,10 @@ export type {
   ActualMonthResult,
   ActualsResult,
 } from './actuals';
+export { computeBusinessCase } from './business-case';
+export type {
+  BusinessCaseInput,
+  BusinessCaseYearInput,
+  BusinessCaseYear,
+  BusinessCaseResult,
+} from './business-case';
