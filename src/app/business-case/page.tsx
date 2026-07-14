@@ -1,11 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
+import { Card, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 import { computeBusinessCase, type BusinessCaseInput, type BusinessCaseYear } from '@/lib/engine';
 import { fmtKEur, fmtMonths } from '@/lib/format';
-import type { SubmissionRow } from '@/lib/data';
 
 interface YearForm {
   revenue: string;
@@ -58,7 +57,7 @@ function CashFlowBars({ years }: { years: BusinessCaseYear[] }) {
   const cfK = years.map((y) => y.cashFlow / 1000);
   const roundTo = (v: number, s: number, dir: 'ceil' | 'floor') => (dir === 'ceil' ? Math.ceil(v / s) : Math.floor(v / s)) * s;
   const raw = cfK.length ? cfK : [0];
-  const step = Math.max(100, Math.pow(10, Math.floor(Math.log10(Math.max(1, Math.max(...raw.map(Math.abs)))))) );
+  const step = Math.max(100, Math.pow(10, Math.floor(Math.log10(Math.max(1, Math.max(...raw.map(Math.abs)))))));
   const eMax = roundTo(Math.max(0, ...raw), step, 'ceil') || step;
   const eMin = roundTo(Math.min(0, ...raw), step, 'floor');
   const range = eMax - eMin || 1;
@@ -91,16 +90,14 @@ function CashFlowBars({ years }: { years: BusinessCaseYear[] }) {
 }
 
 export default function BusinessCasePage() {
-  const { data, error, loading, reload } = usePortalData();
+  const { data, error, loading } = usePortalData();
   const [label, setLabel] = useState('');
   const [horizon, setHorizon] = useState(3);
   const [ratePct, setRatePct] = useState('15');
+  const [targetDept, setTargetDept] = useState('');
   const [yrs, setYrs] = useState<YearForm[]>(() => Array.from({ length: 3 }, emptyYear));
-  const [payrollTarget, setPayrollTarget] = useState('');
-  const [opexTarget, setOpexTarget] = useState('');
   const [busy, setBusy] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [prefillMsg, setPrefillMsg] = useState<string | null>(null);
 
   const num = (s: string) => (s.trim() === '' ? 0 : Number(s) || 0);
 
@@ -128,25 +125,16 @@ export default function BusinessCasePage() {
   if (loading) return <Page data={null}><Loading /></Page>;
   if (error || !data) return <Page data={null}><ErrorBox message={error ?? 'Erreur inconnue.'} /></Page>;
 
+  const effTarget = targetDept || data.profile.department_id || data.departments[0]?.id || '';
+
   function setHorizonSafe(n: number) {
     setHorizon(n);
     setYrs((prev) => {
       const next = [...prev];
       while (next.length < n) next.push(emptyYear());
-      return next.slice(0, Math.max(n, next.length));
+      return next;
     });
   }
-
-  // Pre-remplissage : disponible pour un Head of dont la derniere navette est en brouillon.
-  const myDeptId = data.profile.department_id;
-  const myDraft: SubmissionRow | null = myDeptId
-    ? data.submissions.filter((s) => s.department_id === myDeptId).sort((a, b) => b.version - a.version)[0] ?? null
-    : null;
-  const canPrefill = !!myDeptId && myDraft?.status === 'draft';
-  const payrollDefs = data.driverDefs.filter((d) => d.department_id === myDeptId && d.kind === 'payroll');
-  const opexDefs = data.driverDefs.filter((d) => d.department_id === myDeptId && d.kind === 'opex');
-  const effPayroll = payrollTarget || payrollDefs[0]?.id || '';
-  const effOpex = opexTarget || opexDefs[0]?.id || '';
 
   async function saveCase() {
     setBusy(true);
@@ -154,63 +142,20 @@ export default function BusinessCasePage() {
     try {
       const supabase = getSupabase();
       const { data: auth } = await supabase.auth.getUser();
+      const targetName = data!.departments.find((d) => d.id === effTarget)?.name ?? '';
       const { error: e } = await supabase.from('business_cases').insert({
         company_id: data!.company.id,
         department_id: data!.profile.department_id,
+        target_department_id: effTarget || null,
         label: params.label,
         params,
+        status: 'proposed',
         created_by: auth.user!.id,
       });
       if (e) throw new Error(e.message);
-      setSaveMsg(`Business case "${params.label}" enregistré.`);
+      setSaveMsg(`Business case "${params.label}" proposé pour ${targetName || 'la société'} : à arbitrer dans sa navette.`);
     } catch (e) {
       setSaveMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function prefill() {
-    if (!myDraft || myDraft.status !== 'draft') return;
-    setBusy(true);
-    setPrefillMsg(null);
-    try {
-      const supabase = getSupabase();
-      const y1 = result.years[0];
-      const salariesQ = y1 ? y1.salaries / 4 : 0;
-      const opexQ = y1 ? y1.otherOpex / 4 : 0;
-      const added: string[] = [];
-
-      async function addToLine(defId: string, perQuarter: number, kindLabel: string) {
-        if (!defId || perQuarter === 0) return;
-        const def = data!.driverDefs.find((d) => d.id === defId);
-        const existing = data!.lines.find((l) => l.submission_id === myDraft!.id && l.driver_def_id === defId);
-        const base = existing ? [Number(existing.q1), Number(existing.q2), Number(existing.q3), Number(existing.q4)] : [0, 0, 0, 0];
-        const row = {
-          submission_id: myDraft!.id,
-          driver_def_id: defId,
-          q1: base[0] + perQuarter,
-          q2: base[1] + perQuarter,
-          q3: base[2] + perQuarter,
-          q4: base[3] + perQuarter,
-          unit_cost: existing?.unit_cost ?? null,
-        };
-        const { error: e } = await supabase.from('submission_lines').upsert(row, { onConflict: 'submission_id,driver_def_id' });
-        if (e) throw new Error(e.message);
-        added.push(`${Math.round(perQuarter).toLocaleString('fr-FR')} € par trimestre sur "${def?.label ?? kindLabel}"`);
-      }
-
-      await addToLine(effPayroll, salariesQ, 'salaires');
-      await addToLine(effOpex, opexQ, 'opex');
-
-      if (added.length === 0) {
-        setPrefillMsg('Rien à ajouter : renseignez les salaires ou opex de l’année 1 et choisissez des lignes cibles.');
-      } else {
-        setPrefillMsg(`Navette v${myDraft.version} (brouillon) pré-remplie : ${added.join(' ; ')}. Les montants ont été ajoutés aux valeurs existantes.`);
-        await reload();
-      }
-    } catch (e) {
-      setPrefillMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -220,7 +165,7 @@ export default function BusinessCasePage() {
     <Page data={data}>
       <h1 className="text-2xl font-bold text-ink">Business case</h1>
       <p className="mt-1 text-sm text-ink/60">
-        Chiffrage d&apos;un projet d&apos;investissement : cash-flows, VAN et payback, sur les mêmes conventions que le moteur. Constats calculés, aucune recommandation rédigée.
+        Chiffrage d&apos;un projet d&apos;investissement : cash-flows, VAN et payback. Une fois proposé, le business case apparaît dans la navette du département cible, où il est arbitré (accepté ou rejeté). Un cas accepté alimente la consolidation.
       </p>
 
       {/* Hypothèses */}
@@ -229,6 +174,12 @@ export default function BusinessCasePage() {
           <label className="text-sm">
             <span className="font-semibold text-ink">Intitulé du projet</span>
             <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="ex. Offre CGP" className={`mt-1 block w-64 bg-white ${inputBase}`} />
+          </label>
+          <label className="text-sm">
+            <span className="font-semibold text-ink">Département cible</span>
+            <select value={effTarget} onChange={(e) => setTargetDept(e.target.value)} className={`mt-1 block bg-white ${inputBase}`}>
+              {data.departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
+            </select>
           </label>
           <label className="text-sm">
             <span className="font-semibold text-ink">Horizon</span>
@@ -319,56 +270,13 @@ export default function BusinessCasePage() {
         </div>
       </div>
 
-      {/* Actions */}
+      {/* Action */}
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button onClick={saveCase} disabled={busy} className={btnPrimary}>
-          {busy ? 'Enregistrement...' : 'Enregistrer le business case'}
+          {busy ? 'Enregistrement...' : 'Proposer ce business case'}
         </button>
         {saveMsg && <p className="text-sm text-ink/70">{saveMsg}</p>}
       </div>
-
-      {/* Pré-remplissage de la navette (Head of, brouillon) */}
-      {myDeptId && (
-        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="font-semibold text-ink">Pré-remplir ma navette</h2>
-            {canPrefill ? <Badge tone="peach">Brouillon v{myDraft!.version}</Badge> : <Badge tone="muted">Indisponible</Badge>}
-          </div>
-          {!canPrefill ? (
-            <p className="mt-2 text-sm text-ink/60">
-              {myDraft ? 'La dernière navette est soumise (figée) : créez une nouvelle version en brouillon pour pré-remplir.' : 'Aucune navette en brouillon à pré-remplir.'}
-            </p>
-          ) : payrollDefs.length === 0 && opexDefs.length === 0 ? (
-            <p className="mt-2 text-sm text-ink/60">Aucune ligne salaires ni opex dans votre département : rien à pré-remplir.</p>
-          ) : (
-            <>
-              <p className="mt-2 text-sm text-ink/60">
-                Les salaires et les autres opex de l&apos;année 1 sont répartis en quatre trimestres égaux et ajoutés aux valeurs existantes du brouillon.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-4">
-                <label className="text-sm">
-                  <span className="font-semibold text-ink">Ligne salaires cible</span>
-                  <select value={effPayroll} onChange={(e) => setPayrollTarget(e.target.value)} className={`mt-1 block bg-white ${inputBase}`} disabled={payrollDefs.length === 0}>
-                    {payrollDefs.length === 0 ? <option value="">Aucune ligne payroll</option> : payrollDefs.map((d) => (<option key={d.id} value={d.id}>{d.label}</option>))}
-                  </select>
-                  <span className="mt-1 block text-xs text-ink/50">Ajout : {fmtKEur(result.years[0]?.salaries ?? 0)} / an</span>
-                </label>
-                <label className="text-sm">
-                  <span className="font-semibold text-ink">Ligne opex cible</span>
-                  <select value={effOpex} onChange={(e) => setOpexTarget(e.target.value)} className={`mt-1 block bg-white ${inputBase}`} disabled={opexDefs.length === 0}>
-                    {opexDefs.length === 0 ? <option value="">Aucune ligne opex</option> : opexDefs.map((d) => (<option key={d.id} value={d.id}>{d.label}</option>))}
-                  </select>
-                  <span className="mt-1 block text-xs text-ink/50">Ajout : {fmtKEur(result.years[0]?.otherOpex ?? 0)} / an</span>
-                </label>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-4">
-                <button onClick={prefill} disabled={busy} className={btnSecondary}>Pré-remplir ma navette</button>
-                {prefillMsg && <p className="text-sm text-ink/70">{prefillMsg}</p>}
-              </div>
-            </>
-          )}
-        </div>
-      )}
     </Page>
   );
 }
