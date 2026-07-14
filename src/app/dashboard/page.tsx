@@ -3,7 +3,9 @@
 import { useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, usePortalData } from '@/components/shell';
 import { MonthlyChart } from '@/components/monthly-chart';
-import { buildConsolidationInputs, latestSubmittedByDept } from '@/lib/data';
+import { NavetteStatusCard } from '@/components/navette-status-card';
+import { buildConsolidationInputs } from '@/lib/data';
+import type { SubmissionRow } from '@/lib/data';
 import { consolidate } from '@/lib/engine';
 import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths, fmtPct } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
@@ -26,7 +28,13 @@ export default function DashboardPage() {
   if (loading) return <Page data={null}><Loading /></Page>;
   if (error || !data || !result) return <Page data={null}><ErrorBox message={error ?? 'Erreur inconnue.'} /></Page>;
 
-  const latest = latestSubmittedByDept(data.submissions);
+  // Dernière version de chaque département, quel que soit son statut (brouillon et
+  // renvoyée incluses) : les cartes montrent l'état réel, pas seulement les soumises.
+  const latestByDept = new Map<string, SubmissionRow>();
+  for (const s of data.submissions) {
+    const cur = latestByDept.get(s.department_id);
+    if (!cur || s.version > cur.version) latestByDept.set(s.department_id, s);
+  }
   const M = result.months;
 
   // Tableau P&L : détails, lignes de solde surlignées et sous-lignes de marge en %.
@@ -86,18 +94,13 @@ export default function DashboardPage() {
       </div>
       {exportMsg && <p className="mt-2 text-sm text-red-600">{exportMsg}</p>}
 
-      {/* Statut des navettes */}
+      {/* Statut des navettes : une carte par département, cinq par rangée en grand écran */}
       <div className="mt-6">
         <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Navettes reçues</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {data.departments.map((d) => {
-            const sub = latest.get(d.id);
-            return sub ? (
-              <Badge key={d.id} tone="accent" dot="mint">{d.name} v{sub.version} soumise</Badge>
-            ) : (
-              <Badge key={d.id} tone="danger" dot="red">{d.name} manquante</Badge>
-            );
-          })}
+        <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          {data.departments.map((d) => (
+            <NavetteStatusCard key={d.id} code={d.code} name={d.name} submission={latestByDept.get(d.id) ?? null} />
+          ))}
         </div>
       </div>
 

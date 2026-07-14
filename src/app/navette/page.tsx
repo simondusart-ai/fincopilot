@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
+import { SubmissionStatusBadge } from '@/components/navette-status-card';
 import { computeBusinessCase } from '@/lib/engine';
 import type { DriverKind, LineFrequency } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
@@ -515,18 +516,18 @@ export default function NavettePage() {
   const events: { key: string; badge: React.ReactNode; text: string; note?: string }[] = [];
   for (const s of versionsAsc) {
     if (s.status === 'draft') {
-      events.push({ key: `${s.id}-d`, badge: <Badge tone="peach">Brouillon</Badge>, text: `v${s.version} en brouillon` });
+      events.push({ key: `${s.id}-d`, badge: <SubmissionStatusBadge status="draft" />, text: `v${s.version} en brouillon` });
       continue;
     }
     events.push({
       key: `${s.id}-s`,
-      badge: <Badge tone="accent" dot="mint">Soumise</Badge>,
+      badge: <SubmissionStatusBadge status="submitted" />,
       text: s.submitted_at ? `v${s.version} soumise le ${fmtDate(s.submitted_at)}` : `v${s.version} soumise`,
     });
     if (s.status === 'approved') {
       events.push({
         key: `${s.id}-a`,
-        badge: <Badge tone="accent">Validée</Badge>,
+        badge: <SubmissionStatusBadge status="approved" />,
         text: s.decided_at ? `v${s.version} validée le ${fmtDate(s.decided_at)}` : `v${s.version} validée`,
         note: s.decision_note ?? undefined,
       });
@@ -534,7 +535,7 @@ export default function NavettePage() {
     if (s.status === 'rejected') {
       events.push({
         key: `${s.id}-r`,
-        badge: <Badge tone="danger">Renvoyée</Badge>,
+        badge: <SubmissionStatusBadge status="rejected" />,
         text: s.decided_at ? `v${s.version} renvoyée le ${fmtDate(s.decided_at)}` : `v${s.version} renvoyée`,
         note: s.decision_note ?? undefined,
       });

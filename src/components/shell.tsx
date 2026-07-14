@@ -46,7 +46,7 @@ export const btnSecondary =
 export const inputBase =
   'rounded-xl border border-lav bg-card-soft px-3 py-2 text-ink tabular-nums outline-none transition-colors focus:border-primary disabled:bg-page disabled:text-ink/50';
 
-type BadgeTone = 'accent' | 'muted' | 'peach' | 'danger';
+type BadgeTone = 'accent' | 'muted' | 'lav' | 'peach' | 'danger';
 
 /** Pastille de statut : pill blanche à bordure lavande, texte en majuscules. */
 export function Badge({
@@ -61,6 +61,7 @@ export function Badge({
   const tones: Record<BadgeTone, string> = {
     accent: 'bg-white border border-lav text-accent',
     muted: 'bg-white border border-lav text-ink',
+    lav: 'bg-lav border border-lav text-ink',
     peach: 'bg-peach border border-peach text-ink',
     danger: 'bg-red-50 border border-red-200 text-red-700',
   };
