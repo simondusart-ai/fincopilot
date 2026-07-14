@@ -3,8 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
+import { computeBusinessCase } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
 import type { DriverDefRow, SubmissionRow } from '@/lib/data';
+
+function statusBadge(status: string) {
+  if (status === 'accepted') return <Badge tone="accent" dot="mint">Accepté</Badge>;
+  if (status === 'rejected') return <Badge tone="danger">Rejeté</Badge>;
+  return <Badge tone="muted">Proposé</Badge>;
+}
 
 const KIND_LABEL: Record<string, string> = {
   new_mrr: 'Nouveau MRR (€ / trimestre)',
@@ -185,6 +192,33 @@ export default function NavettePage() {
     }
   }
 
+  async function decide(bcId: string, status: 'accepted' | 'rejected') {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { data: authUser } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from('business_cases')
+        .update({ status, decided_by: authUser.user!.id, decided_at: new Date().toISOString() })
+        .eq('id', bcId);
+      if (error) throw new Error(error.message);
+      setMessage(`Business case ${status === 'accepted' ? 'accepté : intégré à la consolidation' : 'rejeté'}.`);
+      await reload();
+    } catch (e) {
+      setMessage(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Droits : le CFO gère toute navette, un Head of la sienne ; le CEO consulte et arbitre.
+  const canManage = data.profile.role === 'cfo' || data.profile.department_id === effectiveDeptId;
+  const canArbitrate = data.profile.role === 'cfo' || data.profile.role === 'ceo';
+  const deptBusinessCases = (data.businessCases ?? []).filter((bc) => bc.target_department_id === effectiveDeptId);
+  const acceptedBcAnnual = deptBusinessCases
+    .filter((bc) => bc.status === 'accepted')
+    .reduce((sum, bc) => { const y1 = computeBusinessCase(bc.params).years[0]; return sum + (y1 ? y1.salaries + y1.otherOpex : 0); }, 0);
+
   const submittedDate =
     latest && !isDraft && latest.submitted_at
       ? new Date(latest.submitted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -199,7 +233,7 @@ export default function NavettePage() {
             Saisie trimestrielle. Une fois soumise, la version est figée : toute modification passe par une nouvelle version.
           </p>
         </div>
-        {data.profile.role === 'cfo' && (
+        {(data.profile.role === 'cfo' || data.profile.role === 'ceo') && (
           <select
             value={effectiveDeptId ?? ''}
             onChange={(e) => setDeptId(e.target.value)}
@@ -248,7 +282,7 @@ export default function NavettePage() {
                 <Badge tone="accent" dot="mint">Soumise (figée)</Badge>
               ))}
             <div className="ml-auto flex gap-2">
-              {isDraft ? (
+              {canManage && (isDraft ? (
                 <>
                   <button onClick={saveDraft} disabled={busy} className={btnSecondary}>
                     Enregistrer le brouillon
@@ -261,7 +295,7 @@ export default function NavettePage() {
                 <button onClick={createVersion} disabled={busy || defs.length === 0} className={btnPrimary}>
                   {latest ? `Nouvelle version (v${latest.version + 1})` : 'Créer la navette v1'}
                 </button>
-              )}
+              ))}
             </div>
           </div>
 
@@ -306,7 +340,7 @@ export default function NavettePage() {
                               <input
                                 type="text"
                                 inputMode="decimal"
-                                disabled={!isDraft}
+                                disabled={!isDraft || !canManage}
                                 value={line?.q[i] ?? '0'}
                                 onChange={(e) =>
                                   setEdit((prev) => {
@@ -328,7 +362,7 @@ export default function NavettePage() {
                               <input
                                 type="text"
                                 inputMode="decimal"
-                                disabled={!isDraft}
+                                disabled={!isDraft || !canManage}
                                 value={line?.unitCost ?? ''}
                                 placeholder="ex. 7500"
                                 onChange={(e) =>
@@ -348,6 +382,67 @@ export default function NavettePage() {
               </div>
             )}
           </div>
+
+          {deptBusinessCases.length > 0 && (
+            <div className="mt-6">
+              <h2 className="text-lg font-semibold text-ink">Business cases proposés ({deptBusinessCases.length})</h2>
+              <p className="mt-1 text-sm text-ink/60">
+                Chaque proposition est ventilée en lignes distinctes. Un business case accepté s&apos;ajoute à la masse salariale et aux opex du département, et à la consolidation.
+              </p>
+              <div className="mt-3 space-y-3">
+                {deptBusinessCases.map((bc) => {
+                  const y1 = computeBusinessCase(bc.params).years[0];
+                  const salQ = (y1?.salaries ?? 0) / 4;
+                  const opxQ = (y1?.otherOpex ?? 0) / 4;
+                  const impact = (y1?.salaries ?? 0) + (y1?.otherOpex ?? 0);
+                  const suffix = bc.status === 'accepted' ? ' (compté)' : bc.status === 'rejected' ? ' (écarté)' : ' (si accepté)';
+                  return (
+                    <div key={bc.id} className="rounded-2xl bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="font-semibold text-ink">{bc.label}</span>
+                        {statusBadge(bc.status)}
+                        <span className="text-xs text-ink/50">Impact année 1 : {fmtKEur(impact)}{suffix}</span>
+                      </div>
+                      <div className="mt-3 overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                              <th className="px-3 py-2 font-semibold">Ligne du business case</th>
+                              <th className="px-3 py-2 text-right font-semibold">T1</th>
+                              <th className="px-3 py-2 text-right font-semibold">T2</th>
+                              <th className="px-3 py-2 text-right font-semibold">T3</th>
+                              <th className="px-3 py-2 text-right font-semibold">T4</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr className="border-b border-lav/60">
+                              <td className="px-3 py-1.5 text-ink/70">{bc.label} : salaires</td>
+                              {[0, 1, 2, 3].map((i) => (<td key={i} className="px-3 py-1.5 text-right tabular-nums">{Math.round(salQ).toLocaleString('fr-FR')}</td>))}
+                            </tr>
+                            <tr>
+                              <td className="px-3 py-1.5 text-ink/70">{bc.label} : opex</td>
+                              {[0, 1, 2, 3].map((i) => (<td key={i} className="px-3 py-1.5 text-right tabular-nums">{Math.round(opxQ).toLocaleString('fr-FR')}</td>))}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      {canArbitrate && (
+                        <div className="mt-3 flex gap-2">
+                          <button onClick={() => decide(bc.id, 'accepted')} disabled={busy || bc.status === 'accepted'} className={btnPrimary}>Accepter</button>
+                          <button onClick={() => decide(bc.id, 'rejected')} disabled={busy || bc.status === 'rejected'} className={btnSecondary}>Rejeter</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {acceptedBcAnnual > 0 && (
+                <p className="mt-3 text-sm text-ink/70">
+                  Business cases acceptés : +{fmtKEur(acceptedBcAnnual)} sur le coût annuel du département, intégrés à la consolidation.
+                </p>
+              )}
+            </div>
+          )}
 
           {submittedDate && (
             <p className="mt-3 text-xs italic text-ink/50">
