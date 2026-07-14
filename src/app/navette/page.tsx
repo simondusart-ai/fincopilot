@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Card, ErrorBox, Loading, Page, usePortalData } from '@/components/shell';
+import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 import { fmtKEur } from '@/lib/format';
-import type { DriverDefRow, SubmissionLineRow, SubmissionRow } from '@/lib/data';
+import type { DriverDefRow, SubmissionRow } from '@/lib/data';
 
 const KIND_LABEL: Record<string, string> = {
   new_mrr: 'Nouveau MRR (€ / trimestre)',
@@ -81,6 +81,9 @@ export default function NavettePage() {
     if (def.kind === 'payroll' || def.kind === 'opex' || def.kind === 'cogs' || def.kind === 'channel_spend') return total + s;
     return total;
   }, 0);
+
+  const overEnvelope = dept?.envelope != null && annualCostEstimate > Number(dept.envelope);
+  const withinEnvelope = dept?.envelope != null && !overEnvelope;
 
   function validateLocally(): string[] {
     const errs: string[] = [];
@@ -182,12 +185,17 @@ export default function NavettePage() {
     }
   }
 
+  const submittedDate =
+    latest && !isDraft && latest.submitted_at
+      ? new Date(latest.submitted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+
   return (
     <Page data={data}>
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Navette budgétaire {data.company.budget_year}</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="text-2xl font-bold text-ink">Navette budgétaire {data.company.budget_year}</h1>
+          <p className="mt-1 text-sm text-ink/60">
             Saisie trimestrielle. Une fois soumise, la version est figée : toute modification passe par une nouvelle version.
           </p>
         </div>
@@ -195,7 +203,7 @@ export default function NavettePage() {
           <select
             value={effectiveDeptId ?? ''}
             onChange={(e) => setDeptId(e.target.value)}
-            className="border border-slate-300 rounded px-3 py-2 text-sm bg-white"
+            className={`bg-white ${inputBase}`}
           >
             {data.departments.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
@@ -208,7 +216,7 @@ export default function NavettePage() {
         <div className="mt-6"><ErrorBox message="Aucun département associé à votre profil : contactez le CFO." /></div>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-6">
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card title="Département" value={dept.name} />
             <Card
               title="Enveloppe de cadrage"
@@ -216,123 +224,140 @@ export default function NavettePage() {
               hint="Décidée au codir ; un dépassement est signalé, jamais bloqué."
             />
             <Card
-              title="Coût annuel saisi (estimation)"
+              title="Coût annuel saisi"
               value={fmtKEur(annualCostEstimate)}
-              tone={dept.envelope != null && annualCostEstimate > Number(dept.envelope) ? 'bad' : 'default'}
+              tone={overEnvelope ? 'bad' : 'default'}
+              dot={withinEnvelope}
+              hint={
+                dept.envelope == null
+                  ? 'Estimation locale, aucune enveloppe définie.'
+                  : overEnvelope
+                    ? 'Estimation locale, au-dessus de l’enveloppe de cadrage.'
+                    : 'Estimation locale, dans l’enveloppe de cadrage.'
+              }
             />
           </div>
 
-          <div className="mt-6 bg-white border border-slate-200 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-3 flex-wrap">
-              <span className="font-medium">
-                {latest ? `Version v${latest.version}` : 'Aucune version'}
-              </span>
-              {latest && (
-                <span className={`text-xs rounded-full px-2 py-0.5 ${isDraft ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                  {isDraft ? 'Brouillon' : 'Soumise (figée)'}
-                </span>
-              )}
-              <div className="ml-auto flex gap-2">
-                {isDraft && (
-                  <>
-                    <button onClick={saveDraft} disabled={busy} className="text-sm border border-slate-300 rounded px-3 py-1.5 hover:bg-slate-50 disabled:opacity-50">
-                      Enregistrer le brouillon
-                    </button>
-                    <button onClick={submitVersion} disabled={busy} className="text-sm bg-indigo-700 text-white rounded px-3 py-1.5 hover:bg-indigo-800 disabled:opacity-50">
-                      Soumettre la navette
-                    </button>
-                  </>
-                )}
-                {!isDraft && (
-                  <button onClick={createVersion} disabled={busy || defs.length === 0} className="text-sm bg-indigo-700 text-white rounded px-3 py-1.5 hover:bg-indigo-800 disabled:opacity-50">
-                    {latest ? `Nouvelle version (v${latest.version + 1})` : 'Créer la navette v1'}
+          {/* Barre de version */}
+          <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
+            <Badge tone="muted">{latest ? `Version v${latest.version}` : 'Aucune version'}</Badge>
+            {latest &&
+              (isDraft ? (
+                <Badge tone="peach">Brouillon</Badge>
+              ) : (
+                <Badge tone="accent" dot="mint">Soumise (figée)</Badge>
+              ))}
+            <div className="ml-auto flex gap-2">
+              {isDraft ? (
+                <>
+                  <button onClick={saveDraft} disabled={busy} className={btnSecondary}>
+                    Enregistrer le brouillon
                   </button>
-                )}
-              </div>
+                  <button onClick={submitVersion} disabled={busy} className={btnPrimary}>
+                    Soumettre la navette
+                  </button>
+                </>
+              ) : (
+                <button onClick={createVersion} disabled={busy || defs.length === 0} className={btnPrimary}>
+                  {latest ? `Nouvelle version (v${latest.version + 1})` : 'Créer la navette v1'}
+                </button>
+              )}
             </div>
-
-            {defs.length === 0 ? (
-              <p className="p-4 text-sm text-slate-500">Aucun driver défini pour ce département (voir Réglages).</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-slate-500 border-b border-slate-200">
-                    <th className="px-4 py-2 font-medium">Driver</th>
-                    <th className="px-2 py-2 font-medium text-right">T1</th>
-                    <th className="px-2 py-2 font-medium text-right">T2</th>
-                    <th className="px-2 py-2 font-medium text-right">T3</th>
-                    <th className="px-2 py-2 font-medium text-right">T4</th>
-                    <th className="px-4 py-2 font-medium text-right">Coût mensuel / ETP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {defs.map((def: DriverDefRow) => {
-                    const line = edit[def.id];
-                    return (
-                      <tr key={def.id} className="border-b border-slate-100">
-                        <td className="px-4 py-2">
-                          <p className="font-medium">{def.label}</p>
-                          <p className="text-xs text-slate-400">{KIND_LABEL[def.kind]}</p>
-                        </td>
-                        {[0, 1, 2, 3].map((i) => (
-                          <td key={i} className="px-2 py-2 text-right">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              disabled={!isDraft}
-                              value={line?.q[i] ?? '0'}
-                              onChange={(e) =>
-                                setEdit((prev) => {
-                                  const next = { ...prev };
-                                  const l = { ...next[def.id] };
-                                  const q = [...l.q] as EditLine['q'];
-                                  q[i] = e.target.value;
-                                  l.q = q;
-                                  next[def.id] = l;
-                                  return next;
-                                })
-                              }
-                              className="w-24 border border-slate-300 rounded px-2 py-1 text-right disabled:bg-slate-50 disabled:text-slate-500"
-                            />
-                          </td>
-                        ))}
-                        <td className="px-4 py-2 text-right">
-                          {def.kind === 'headcount' ? (
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              disabled={!isDraft}
-                              value={line?.unitCost ?? ''}
-                              placeholder="ex. 7500"
-                              onChange={(e) =>
-                                setEdit((prev) => ({ ...prev, [def.id]: { ...prev[def.id], unitCost: e.target.value } }))
-                              }
-                              className="w-28 border border-slate-300 rounded px-2 py-1 text-right disabled:bg-slate-50 disabled:text-slate-500"
-                            />
-                          ) : (
-                            <span className="text-slate-300">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
           </div>
 
+          {/* Encart d'erreurs de soumission */}
           {problems.length > 0 && (
-            <div className="mt-4 border border-red-300 bg-red-50 rounded p-4">
-              <p className="text-sm font-medium text-red-800">Soumission refusée : corrigez d’abord ces points.</p>
-              <ul className="mt-2 space-y-1 text-sm text-red-700 list-disc pl-5">
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4">
+              <p className="text-sm font-semibold text-red-700">Soumission refusée : corrigez d’abord ces points.</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-red-600">
                 {problems.map((p, i) => (<li key={i}>{p}</li>))}
               </ul>
             </div>
           )}
-          {message && <p className="mt-4 text-sm text-slate-600">{message}</p>}
+
+          {/* Tableau de saisie */}
+          <div className="mt-4 overflow-hidden rounded-2xl bg-white shadow-sm">
+            {defs.length === 0 ? (
+              <p className="p-5 text-sm text-ink/50">Aucun driver défini pour ce département (voir Réglages).</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                      <th className="px-5 py-3 font-semibold">Driver</th>
+                      <th className="px-3 py-3 text-right font-semibold">T1</th>
+                      <th className="px-3 py-3 text-right font-semibold">T2</th>
+                      <th className="px-3 py-3 text-right font-semibold">T3</th>
+                      <th className="px-3 py-3 text-right font-semibold">T4</th>
+                      <th className="px-5 py-3 text-right font-semibold">Coût mensuel par ETP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {defs.map((def: DriverDefRow) => {
+                      const line = edit[def.id];
+                      return (
+                        <tr key={def.id} className="border-b border-lav/60 last:border-0">
+                          <td className="px-5 py-2.5">
+                            <p className="font-semibold text-ink">{def.label}</p>
+                            <p className="text-xs text-ink/50">{KIND_LABEL[def.kind]}</p>
+                          </td>
+                          {[0, 1, 2, 3].map((i) => (
+                            <td key={i} className="px-3 py-2.5 text-right">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                disabled={!isDraft}
+                                value={line?.q[i] ?? '0'}
+                                onChange={(e) =>
+                                  setEdit((prev) => {
+                                    const next = { ...prev };
+                                    const l = { ...next[def.id] };
+                                    const q = [...l.q] as EditLine['q'];
+                                    q[i] = e.target.value;
+                                    l.q = q;
+                                    next[def.id] = l;
+                                    return next;
+                                  })
+                                }
+                                className={`w-24 text-right ${inputBase}`}
+                              />
+                            </td>
+                          ))}
+                          <td className="px-5 py-2.5 text-right">
+                            {def.kind === 'headcount' ? (
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                disabled={!isDraft}
+                                value={line?.unitCost ?? ''}
+                                placeholder="ex. 7500"
+                                onChange={(e) =>
+                                  setEdit((prev) => ({ ...prev, [def.id]: { ...prev[def.id], unitCost: e.target.value } }))
+                                }
+                                className={`w-28 text-right ${inputBase}`}
+                              />
+                            ) : (
+                              <span className="text-ink/30">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {submittedDate && (
+            <p className="mt-3 text-xs italic text-ink/50">
+              Version v{latest!.version} soumise le {submittedDate} · lecture seule.
+            </p>
+          )}
+          {message && <p className="mt-4 text-sm text-ink/70">{message}</p>}
 
           {submissions.length > 1 && (
-            <p className="mt-6 text-xs text-slate-400">
+            <p className="mt-4 text-xs text-ink/40">
               Historique : {submissions.map((s) => `v${s.version} (${s.status === 'draft' ? 'brouillon' : 'soumise'})`).join(', ')}.
             </p>
           )}
