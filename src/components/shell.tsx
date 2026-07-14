@@ -78,15 +78,16 @@ export function Header({ data }: { data: PortalData | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const role = data?.profile.role;
+  const isLeader = role === 'cfo' || role === 'ceo';
   const dept = data?.departments.find((d) => d.id === data?.profile.department_id);
-  const roleLabel = role === 'cfo' ? 'CFO' : dept ? `Head of ${dept.name}` : 'Head of';
+  const roleLabel = role === 'cfo' ? 'CFO' : role === 'ceo' ? 'CEO' : dept ? `Head of ${dept.name}` : 'Head of';
 
   const links = [
     { href: '/navette', label: 'Ma navette', show: true },
-    { href: '/dashboard', label: 'Consolidation', show: role === 'cfo' },
+    { href: '/dashboard', label: 'Consolidation', show: isLeader },
     { href: '/pilotage', label: 'Pilotage', show: true },
     { href: '/business-case', label: 'Business case', show: true },
-    { href: '/diff', label: 'Versions', show: role === 'cfo' },
+    { href: '/diff', label: 'Versions', show: isLeader },
     { href: '/reglages', label: 'Réglages', show: role === 'cfo' },
   ].filter((l) => l.show);
 

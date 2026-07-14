@@ -20,7 +20,7 @@ export default function Home() {
         .select('role')
         .eq('user_id', session.session.user.id)
         .single();
-      router.replace(profile?.role === 'cfo' ? '/dashboard' : '/navette');
+      router.replace(profile?.role === 'cfo' || profile?.role === 'ceo' ? '/dashboard' : '/navette');
     })();
   }, [router]);
   return <p className="py-12 text-center text-ink/50">Chargement...</p>;
