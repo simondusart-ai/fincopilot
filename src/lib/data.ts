@@ -25,6 +25,8 @@ export interface CompanyRow {
   runway_freeze_months: number;
   payback_cap_months: number | null;
   seasonal_keys: Record<string, number[]>;
+  opening_clients: number;
+  cac_avg_target: number | null;
 }
 
 export interface DepartmentRow {
@@ -92,6 +94,68 @@ export interface PortalData {
   driverDefs: DriverDefRow[];
   submissions: SubmissionRow[];
   lines: SubmissionLineRow[];
+}
+
+/** Lignes brutes de l'historique realise (migration 0003). Montants en euros. */
+export interface PnlYearRow {
+  id: string;
+  company_id: string;
+  year: number;
+  revenue: number;
+  sm: number;
+  tech_product: number;
+  payroll_other: number;
+  ga: number;
+  ebitda: number;
+  da: number;
+  net_income: number;
+}
+
+export interface MonthlyActualRow {
+  id: string;
+  company_id: string;
+  year: number;
+  month: number;
+  new_clients: number;
+  churned_clients: number;
+  mrr_end: number;
+  revenue_month: number | null;
+  sm_spend: number;
+  cash_end: number | null;
+  nrr_measured: number | null;
+}
+
+export interface ChannelActualRow {
+  id: string;
+  company_id: string;
+  channel_id: string;
+  year: number;
+  month: number;
+  spend: number;
+  new_customers: number;
+}
+
+export interface ActualsData {
+  pnlYears: PnlYearRow[];
+  monthlyActuals: MonthlyActualRow[];
+  channelActuals: ChannelActualRow[];
+}
+
+/** Charge l'historique realise autorise par la RLS pour la societe de l'utilisateur. */
+export async function loadActuals(): Promise<ActualsData> {
+  const supabase = getSupabase();
+  const [pnl, monthly, channel] = await Promise.all([
+    supabase.from('pnl_years').select('*').order('year'),
+    supabase.from('monthly_actuals').select('*').order('month'),
+    supabase.from('channel_actuals').select('*'),
+  ]);
+  const firstError = pnl.error ?? monthly.error ?? channel.error;
+  if (firstError) throw new Error(`Erreur de chargement du pilotage : ${firstError.message}`);
+  return {
+    pnlYears: (pnl.data ?? []) as PnlYearRow[],
+    monthlyActuals: (monthly.data ?? []) as MonthlyActualRow[],
+    channelActuals: (channel.data ?? []) as ChannelActualRow[],
+  };
 }
 
 /** Charge tout ce que la RLS autorise pour l'utilisateur courant. */

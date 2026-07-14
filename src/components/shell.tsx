@@ -84,6 +84,7 @@ export function Header({ data }: { data: PortalData | null }) {
   const links = [
     { href: '/navette', label: 'Ma navette', show: true },
     { href: '/dashboard', label: 'Consolidation', show: role === 'cfo' },
+    { href: '/pilotage', label: 'Pilotage', show: true },
     { href: '/diff', label: 'Versions', show: role === 'cfo' },
     { href: '/reglages', label: 'Réglages', show: role === 'cfo' },
   ].filter((l) => l.show);
