@@ -150,6 +150,8 @@ export interface PortalData {
   lines: SubmissionLineRow[];
   customLines: SubmissionCustomLineRow[];
   businessCases: BusinessCaseRow[];
+  /** Exercice budgétaire ouvert pour l'année budgétée. null = campagne pas encore lancée. */
+  exercise: BudgetExerciseRow | null;
 }
 
 /** Lignes brutes de l'historique realise (migration 0003). Montants en euros. */
@@ -191,6 +193,18 @@ export interface ChannelActualRow {
   new_customers: number;
 }
 
+/** Exercice budgetaire ouvert par la direction (table budget_exercises). */
+export type BudgetMode = 'top_down' | 'bottom_up';
+
+export interface BudgetExerciseRow {
+  id: string;
+  company_id: string;
+  year: number;
+  mode: BudgetMode;
+  started_by: string;
+  started_at: string;
+}
+
 export interface ActualsData {
   pnlYears: PnlYearRow[];
   monthlyActuals: MonthlyActualRow[];
@@ -227,7 +241,7 @@ export async function loadPortalData(): Promise<PortalData> {
     .single();
   if (pErr || !profile) throw new Error('Profil introuvable : contactez le CFO.');
 
-  const [companies, departments, channels, driverDefs, submissions, lines, customLines, businessCases] = await Promise.all([
+  const [companies, departments, channels, driverDefs, submissions, lines, customLines, businessCases, exercises] = await Promise.all([
     supabase.from('companies').select('*').eq('id', profile.company_id).single(),
     supabase.from('departments').select('*').order('sort'),
     supabase.from('channels').select('*').order('name'),
@@ -236,15 +250,20 @@ export async function loadPortalData(): Promise<PortalData> {
     supabase.from('submission_lines').select('*'),
     supabase.from('submission_custom_lines').select('*').order('sort').order('label'),
     supabase.from('business_cases').select('*').order('created_at'),
+    supabase.from('budget_exercises').select('*'),
   ]);
   const firstError =
     companies.error ?? departments.error ?? channels.error ?? driverDefs.error ??
-    submissions.error ?? lines.error ?? customLines.error ?? businessCases.error;
+    submissions.error ?? lines.error ?? customLines.error ?? businessCases.error ?? exercises.error;
   if (firstError) throw new Error(`Erreur de chargement : ${firstError.message}`);
+
+  const company = companies.data as CompanyRow;
+  const exercise =
+    ((exercises.data ?? []) as BudgetExerciseRow[]).find((e) => e.year === company.budget_year) ?? null;
 
   return {
     profile: profile as ProfileRow,
-    company: companies.data as CompanyRow,
+    company,
     departments: (departments.data ?? []) as DepartmentRow[],
     channels: (channels.data ?? []) as ChannelRow[],
     driverDefs: (driverDefs.data ?? []) as DriverDefRow[],
@@ -252,6 +271,7 @@ export async function loadPortalData(): Promise<PortalData> {
     lines: (lines.data ?? []) as SubmissionLineRow[],
     customLines: (customLines.data ?? []) as SubmissionCustomLineRow[],
     businessCases: (businessCases.data ?? []) as BusinessCaseRow[],
+    exercise,
   };
 }
 

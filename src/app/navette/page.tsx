@@ -642,6 +642,13 @@ export default function NavettePage() {
                 Navette figée : créez une nouvelle version pour modifier les lignes ou en ajouter.
               </p>
             )}
+            {data.exercise && isDraft && (
+              <p className="mt-3 text-xs text-ink/50">
+                {data.exercise.mode === 'top_down'
+                  ? 'Exercice top-down : la direction pré-remplit cette navette, le métier l’ajuste ensuite.'
+                  : 'Exercice bottom-up : c’est au métier de remplir cette navette, puis de la soumettre.'}
+              </p>
+            )}
             {canDecide && (
               <div className="mt-5 border-t border-lav/60 pt-4">
                 <p className="text-sm font-semibold text-ink">Décision sur la v{latest!.version} soumise</p>

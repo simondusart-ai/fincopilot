@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, usePortalData } from '@/components/shell';
+import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, usePortalData } from '@/components/shell';
 import { MonthlyChart } from '@/components/monthly-chart';
 import { NavetteStatusCard } from '@/components/navette-status-card';
+import { getSupabase } from '@/lib/supabase';
 import { buildConsolidationInputs } from '@/lib/data';
-import type { SubmissionRow } from '@/lib/data';
+import type { BudgetMode, SubmissionRow } from '@/lib/data';
 import { consolidate } from '@/lib/engine';
 import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths, fmtPct } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
@@ -20,8 +21,11 @@ interface PnlRow {
 }
 
 export default function DashboardPage() {
-  const { data, error, loading } = usePortalData();
+  const { data, error, loading, reload } = usePortalData();
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [cycleMsg, setCycleMsg] = useState<string | null>(null);
+  const [resetArmed, setResetArmed] = useState(false);
 
   const result = useMemo(() => (data ? consolidate(buildConsolidationInputs(data)) : null), [data]);
 
@@ -36,6 +40,67 @@ export default function DashboardPage() {
     if (!cur || s.version > cur.version) latestByDept.set(s.department_id, s);
   }
   const M = result.months;
+
+  // Ouverture et remise a zero de la campagne budgetaire : reservees a la direction.
+  const isLeader = data.profile.role === 'cfo' || data.profile.role === 'ceo';
+  const hasAnyNavette = data.submissions.length > 0;
+  const supabase = getSupabase();
+
+  /** Genere une navette v1 en brouillon (vide) pour chaque departement qui n'en a pas. */
+  async function startExercise(mode: BudgetMode) {
+    setBusy(true);
+    setCycleMsg(null);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const withNavette = new Set(data!.submissions.map((s) => s.department_id));
+      const rows = data!.departments
+        .filter((d) => !withNavette.has(d.id))
+        .map((d) => ({ department_id: d.id, version: 1, status: 'draft', created_by: auth.user!.id }));
+      if (rows.length > 0) {
+        const { error: e } = await supabase.from('submissions').insert(rows);
+        if (e) throw new Error(e.message);
+      }
+      const { error: eEx } = await supabase.from('budget_exercises').upsert(
+        { company_id: data!.company.id, year: data!.company.budget_year, mode, started_by: auth.user!.id },
+        { onConflict: 'company_id,year' },
+      );
+      if (eEx) throw new Error(eEx.message);
+      setCycleMsg(
+        mode === 'top_down'
+          ? `Exercice ${data!.company.budget_year} ouvert en top-down : ${rows.length} navette(s) v1 créée(s) en brouillon, à pré-remplir par la direction.`
+          : `Exercice ${data!.company.budget_year} ouvert en bottom-up : ${rows.length} navette(s) v1 créée(s) en brouillon, à remplir par chaque métier.`,
+      );
+      await reload();
+    } catch (e) {
+      setCycleMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Supprime TOUTES les navettes de la societe (les lignes suivent par cascade). */
+  async function resetExercise() {
+    setBusy(true);
+    setCycleMsg(null);
+    try {
+      const deptIds = data!.departments.map((d) => d.id);
+      const { error: e } = await supabase.from('submissions').delete().in('department_id', deptIds);
+      if (e) throw new Error(e.message);
+      const { error: eEx } = await supabase
+        .from('budget_exercises')
+        .delete()
+        .eq('company_id', data!.company.id)
+        .eq('year', data!.company.budget_year);
+      if (eEx) throw new Error(eEx.message);
+      setCycleMsg('Exercice remis à zéro : toutes les navettes ont été supprimées.');
+      setResetArmed(false);
+      await reload();
+    } catch (e) {
+      setCycleMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // Tableau P&L : détails, lignes de solde surlignées et sous-lignes de marge en %.
   const pnlRows: PnlRow[] = [
@@ -93,6 +158,67 @@ export default function DashboardPage() {
         )}
       </div>
       {exportMsg && <p className="mt-2 text-sm text-red-600">{exportMsg}</p>}
+
+      {/* Campagne budgétaire : ouverture et remise à zéro, réservées à la direction */}
+      {isLeader && (
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="font-semibold text-ink">Campagne budgétaire {data.company.budget_year}</h2>
+            {data.exercise ? (
+              <Badge tone="accent" dot="mint">
+                {data.exercise.mode === 'top_down' ? 'Top-down' : 'Bottom-up'}
+              </Badge>
+            ) : (
+              <Badge tone="lav">Non ouverte</Badge>
+            )}
+          </div>
+
+          {!hasAnyNavette ? (
+            <>
+              <p className="mt-2 text-sm text-ink/60">
+                Aucune navette n&apos;existe. Ouvrez la campagne : une navette v1 en brouillon, vide, est créée pour chaque département.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={() => startExercise('top_down')} disabled={busy} className={btnPrimary}>
+                  Démarrer en top-down
+                </button>
+                <button onClick={() => startExercise('bottom_up')} disabled={busy} className={btnSecondary}>
+                  Démarrer en bottom-up
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-ink/50">
+                Top-down : la direction pré-remplit les navettes, le métier ajuste ensuite. Bottom-up : chaque métier remplit la sienne.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-ink/60">
+                {data.submissions.length} navette(s) en circulation. La consolidation ne produit aucun chiffre tant qu&apos;un département n&apos;a pas soumis la sienne.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {resetArmed ? (
+                  <>
+                    <span className="text-sm font-semibold text-red-700">
+                      Supprimer les {data.submissions.length} navettes de {data.company.name} ? Cette action est irréversible.
+                    </span>
+                    <button onClick={resetExercise} disabled={busy} className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100">
+                      Oui, tout supprimer
+                    </button>
+                    <button onClick={() => setResetArmed(false)} disabled={busy} className={btnSecondary}>
+                      Annuler
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setResetArmed(true)} disabled={busy} className={btnSecondary}>
+                    Réinitialiser l&apos;exercice
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          {cycleMsg && <p className="mt-3 text-sm text-ink/70">{cycleMsg}</p>}
+        </div>
+      )}
 
       {/* Statut des navettes : une carte par département, cinq par rangée en grand écran */}
       <div className="mt-6">
