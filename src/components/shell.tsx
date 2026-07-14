@@ -36,10 +36,50 @@ export function usePortalData() {
   return { data, error, loading, reload };
 }
 
+/** Deux seuls styles de bouton de l'application (cf. charte). */
+export const btnPrimary =
+  'inline-flex items-center justify-center rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent disabled:opacity-50';
+export const btnSecondary =
+  'inline-flex items-center justify-center rounded-full border border-lav bg-white px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-card-soft disabled:opacity-50';
+
+/** Champ de saisie standard, coins arrondis, tokens de charte. */
+export const inputBase =
+  'rounded-xl border border-lav bg-card-soft px-3 py-2 text-ink tabular-nums outline-none transition-colors focus:border-primary disabled:bg-page disabled:text-ink/50';
+
+type BadgeTone = 'accent' | 'muted' | 'peach' | 'danger';
+
+/** Pastille de statut : pill blanche à bordure lavande, texte en majuscules. */
+export function Badge({
+  children,
+  tone = 'accent',
+  dot,
+}: {
+  children: React.ReactNode;
+  tone?: BadgeTone;
+  dot?: 'mint' | 'red';
+}) {
+  const tones: Record<BadgeTone, string> = {
+    accent: 'bg-white border border-lav text-accent',
+    muted: 'bg-white border border-lav text-ink',
+    peach: 'bg-peach border border-peach text-ink',
+    danger: 'bg-red-50 border border-red-200 text-red-700',
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${tones[tone]}`}
+    >
+      {dot && <span className={`h-1.5 w-1.5 rounded-full ${dot === 'mint' ? 'bg-mint' : 'bg-red-500'}`} />}
+      {children}
+    </span>
+  );
+}
+
 export function Header({ data }: { data: PortalData | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const role = data?.profile.role;
+  const dept = data?.departments.find((d) => d.id === data?.profile.department_id);
+  const roleLabel = role === 'cfo' ? 'CFO' : dept ? `Head of ${dept.name}` : 'Head of';
 
   const links = [
     { href: '/navette', label: 'Ma navette', show: true },
@@ -49,29 +89,37 @@ export function Header({ data }: { data: PortalData | null }) {
   ].filter((l) => l.show);
 
   return (
-    <header className="bg-white border-b border-slate-200">
-      <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-6">
-        <Link href="/" className="text-lg font-semibold text-indigo-700">
+    <header className="mx-auto w-full max-w-6xl px-4 pt-4">
+      <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-white px-5 py-3 shadow-sm">
+        <Link href="/" className="text-lg font-bold text-primary">
           Navette
         </Link>
         {data && (
-          <span className="text-sm text-slate-500">
+          <span className="hidden border-l border-lav pl-4 text-sm text-ink/50 md:inline">
             {data.company.name} · budget {data.company.budget_year}
           </span>
         )}
-        <nav className="flex gap-4 ml-auto items-center">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={`text-sm ${pathname === l.href ? 'text-indigo-700 font-medium' : 'text-slate-600 hover:text-slate-900'}`}
-            >
-              {l.label}
-            </Link>
-          ))}
+        <nav className="ml-1 flex items-center gap-1">
+          {links.map((l) => {
+            const active = pathname === l.href;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors ${
+                  active ? 'bg-primary text-white' : 'text-ink hover:bg-card-soft'
+                }`}
+              >
+                {l.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="ml-auto flex items-center gap-3">
           {data && (
-            <span className="text-sm text-slate-400 hidden sm:inline">
-              {data.profile.full_name} ({data.profile.role === 'cfo' ? 'CFO' : 'Head of'})
+            <span className="hidden text-right leading-tight sm:block">
+              <span className="block text-sm font-semibold text-ink">{data.profile.full_name}</span>
+              <span className="block text-xs text-ink/50">{roleLabel}</span>
             </span>
           )}
           <button
@@ -79,11 +127,11 @@ export function Header({ data }: { data: PortalData | null }) {
               await getSupabase().auth.signOut();
               router.replace('/login');
             }}
-            className="text-sm text-slate-500 hover:text-slate-900 border border-slate-300 rounded px-2 py-1"
+            className={btnSecondary}
           >
             Déconnexion
           </button>
-        </nav>
+        </div>
       </div>
     </header>
   );
@@ -91,10 +139,10 @@ export function Header({ data }: { data: PortalData | null }) {
 
 export function Page({ data, children }: { data: PortalData | null; children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="flex min-h-screen flex-col">
       <Header data={data} />
-      <main className="mx-auto max-w-6xl w-full px-4 py-6 flex-1">{children}</main>
-      <footer className="text-center text-xs text-slate-400 py-4">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
+      <footer className="py-6 text-center text-xs text-ink/40">
         Navette : moteur de consolidation déterministe et testé, configuration en base, aucun chiffre rédigé par IA.
       </footer>
     </div>
@@ -102,22 +150,38 @@ export function Page({ data, children }: { data: PortalData | null; children: Re
 }
 
 export function Loading() {
-  return <p className="text-slate-500 py-12 text-center">Chargement...</p>;
+  return <p className="py-12 text-center text-ink/50">Chargement...</p>;
 }
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="border border-red-300 bg-red-50 text-red-800 rounded p-4 text-sm">{message}</div>
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{message}</div>
   );
 }
 
-export function Card({ title, value, hint, tone = 'default' }: { title: string; value: string; hint?: string; tone?: 'default' | 'bad' | 'good' }) {
-  const color = tone === 'bad' ? 'text-red-700' : tone === 'good' ? 'text-emerald-700' : 'text-slate-900';
+export function Card({
+  title,
+  value,
+  hint,
+  tone = 'default',
+  dot = false,
+}: {
+  title: string;
+  value: string;
+  hint?: string;
+  tone?: 'default' | 'bad' | 'good';
+  dot?: boolean;
+}) {
+  // Charte : texte noir partout, rouge sobre reserve aux negatifs. Le vert n'existe pas en texte.
+  const valueColor = tone === 'bad' ? 'text-red-600' : 'text-ink';
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{title}</p>
-      <p className={`text-2xl font-semibold mt-1 ${color}`}>{value}</p>
-      {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
+    <div className="rounded-2xl bg-white p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">{title}</p>
+      <p className={`mt-2 text-3xl font-semibold tabular-nums ${valueColor}`}>
+        {value}
+        {dot && <span className="ml-2 inline-block h-2.5 w-2.5 rounded-full bg-mint align-middle" />}
+      </p>
+      {hint && <p className="mt-2 text-xs leading-snug text-ink/50">{hint}</p>}
     </div>
   );
 }
