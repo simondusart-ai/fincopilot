@@ -13,8 +13,10 @@ import {
   DEMO_PASSWORD,
   FINCOPILOT,
   FINCOPILOT_ACTUALS_2026,
+  FINCOPILOT_BUSINESS_CASES,
   FINCOPILOT_PNL_YEARS,
   HEXAFLOOR,
+  type BusinessCaseSeed,
   type PnlYearSeed,
   type SeedCompany,
 } from '../src/lib/seed-data';
@@ -23,6 +25,7 @@ import type { ActualMonthInput } from '../src/lib/engine';
 interface CompanyHistory {
   pnlYears: PnlYearSeed[];
   actuals: ActualMonthInput[];
+  businessCases?: BusinessCaseSeed[];
 }
 
 const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -233,6 +236,22 @@ async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
       if (error) throw new Error(error.message);
     }
     console.log(`${cfg.name} : historique ${pnlRows.length} exercice(s) P&L, ${monthlyRows.length} mois realises (${actualsYear}).`);
+
+    // Business cases d'exemple, proposes et cibles sur un departement, crees au nom du CFO.
+    if (history.businessCases && history.businessCases.length > 0) {
+      const bcRows = history.businessCases.map((bc) => ({
+        company_id: company.id,
+        department_id: null,
+        target_department_id: deptIds.get(bc.targetDepartmentId)!,
+        label: bc.label,
+        params: bc.params,
+        status: 'proposed',
+        created_by: userIds.get(cfoEmail)!,
+      }));
+      const { error } = await sb.from('business_cases').insert(bcRows);
+      if (error) throw new Error(error.message);
+      console.log(`${cfg.name} : ${bcRows.length} business case(s) propose(s).`);
+    }
   }
 
   console.log(`${cfg.name} : ${seed.departments.length} départements, ${seed.submissions.length} navettes, ${seed.users.length} comptes.`);
@@ -240,7 +259,7 @@ async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
 
 async function main() {
   const jobs: Array<[SeedCompany, CompanyHistory | undefined]> = [
-    [FINCOPILOT, { pnlYears: FINCOPILOT_PNL_YEARS, actuals: FINCOPILOT_ACTUALS_2026 }],
+    [FINCOPILOT, { pnlYears: FINCOPILOT_PNL_YEARS, actuals: FINCOPILOT_ACTUALS_2026, businessCases: FINCOPILOT_BUSINESS_CASES }],
     [HEXAFLOOR, undefined],
   ];
   for (const [seed, history] of jobs) {
@@ -249,8 +268,8 @@ async function main() {
     await insertCompany(seed, history);
   }
   console.log(`\nTerminé. Mot de passe de tous les comptes de démo : ${DEMO_PASSWORD}`);
-  console.log('Comptes FinCopilot : cfo@, tech@, sales@, growth@, ops@, fap@ (fincopilot.demo)');
-  console.log('Comptes Hexafloor : cfo@, produit@, commerce@, support@ (hexafloor.demo)');
+  console.log('Comptes FinCopilot : cfo@, ceo@, tech@, sales@, growth@, ops@, fap@ (fincopilot.demo)');
+  console.log('Comptes Hexafloor : cfo@, ceo@, produit@, commerce@, support@ (hexafloor.demo)');
 }
 
 main().catch((e) => {

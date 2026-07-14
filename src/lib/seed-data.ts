@@ -1,5 +1,6 @@
 import type {
   ActualMonthInput,
+  BusinessCaseInput,
   CompanyConfig,
   ConsolidationInputs,
   DriverKind,
@@ -59,8 +60,15 @@ export interface SeedUser {
   email: string;
   password: string;
   fullName: string;
-  role: 'cfo' | 'head_of';
+  role: 'cfo' | 'head_of' | 'ceo';
   departmentId: string | null;
+}
+
+/** Business case d'exemple, proposé et ciblé sur un département (slug local). */
+export interface BusinessCaseSeed {
+  label: string;
+  targetDepartmentId: string;
+  params: BusinessCaseInput;
 }
 
 export interface SeedCompany {
@@ -246,6 +254,7 @@ export const FINCOPILOT: SeedCompany = {
   ],
   users: [
     { email: 'cfo@fincopilot.demo', password: DEMO_PASSWORD, fullName: 'Simon Dusart', role: 'cfo', departmentId: null },
+    { email: 'ceo@fincopilot.demo', password: DEMO_PASSWORD, fullName: 'CEO FinCopilot', role: 'ceo', departmentId: null },
     { email: 'tech@fincopilot.demo', password: DEMO_PASSWORD, fullName: 'Head of Tech & Product', role: 'head_of', departmentId: 'fc-tech' },
     { email: 'sales@fincopilot.demo', password: DEMO_PASSWORD, fullName: 'Head of Sales', role: 'head_of', departmentId: 'fc-sales' },
     { email: 'growth@fincopilot.demo', password: DEMO_PASSWORD, fullName: 'Head of Growth', role: 'head_of', departmentId: 'fc-growth' },
@@ -335,6 +344,7 @@ export const HEXAFLOOR: SeedCompany = {
   ],
   users: [
     { email: 'cfo@hexafloor.demo', password: DEMO_PASSWORD, fullName: 'CFO Hexafloor', role: 'cfo', departmentId: null },
+    { email: 'ceo@hexafloor.demo', password: DEMO_PASSWORD, fullName: 'CEO Hexafloor', role: 'ceo', departmentId: null },
     { email: 'produit@hexafloor.demo', password: DEMO_PASSWORD, fullName: 'Head of Produit & Tech', role: 'head_of', departmentId: 'hx-prod' },
     { email: 'commerce@hexafloor.demo', password: DEMO_PASSWORD, fullName: 'Head of Commerce', role: 'head_of', departmentId: 'hx-com' },
     { email: 'support@hexafloor.demo', password: DEMO_PASSWORD, fullName: 'Head of Support & Admin', role: 'head_of', departmentId: 'hx-sup' },
@@ -373,6 +383,27 @@ export const FINCOPILOT_ACTUALS_2026: ActualMonthInput[] = [
   { month: 10, newClients: 1227, churnedClients: 267, mrrEnd: 857_000, revenueMonth: null, smSpend: 788_961, cashEnd: 6_770_000, nrrMeasured: 0.99 },
   { month: 11, newClients: 1264, churnedClients: 280, mrrEnd: 898_000, revenueMonth: null, smSpend: 812_752, cashEnd: 6_510_000, nrrMeasured: 0.99 },
   { month: 12, newClients: 1131, churnedClients: 291, mrrEnd: 933_000, revenueMonth: null, smSpend: 727_233, cashEnd: 6_230_000, nrrMeasured: 0.99 },
+];
+
+/**
+ * Business case d'exemple pour FinCopilot : l'offre CGP de la Section 2, en lecture
+ * defavorable (VAN negative), proposee et ciblee sur FA&P pour la demonstration d'arbitrage.
+ */
+export const FINCOPILOT_BUSINESS_CASES: BusinessCaseSeed[] = [
+  {
+    label: 'Offre CGP',
+    targetDepartmentId: 'fc-fap',
+    params: {
+      label: 'Offre CGP',
+      horizonYears: 3,
+      discountRate: 0.15,
+      years: [
+        { revenue: 200_000, recurringCosts: 800_000, fte: 1.5, monthlyCostPerFte: 12_500, otherOpex: 30_000, investment: 25_000 },
+        { revenue: 600_000, recurringCosts: 1_600_000, fte: 1.5, monthlyCostPerFte: 12_500, otherOpex: 30_000 },
+        { revenue: 1_200_000, recurringCosts: 3_200_000, fte: 1.5, monthlyCostPerFte: 12_500, otherOpex: 30_000 },
+      ],
+    },
+  },
 ];
 
 /** Construit les entrées du moteur à partir d'une société de seed (dernière version soumise par département). */
