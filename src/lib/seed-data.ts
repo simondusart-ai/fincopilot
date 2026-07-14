@@ -86,7 +86,7 @@ export const DEMO_PASSWORD = 'Navette-demo-2026';
 export const FINCOPILOT: SeedCompany = {
   config: {
     name: 'FinCopilot',
-    budgetYear: 2026,
+    budgetYear: 2027,
     openingCash: 6_230_000,
     openingMrr: 933_000,
     arpa: 41,
@@ -243,7 +243,7 @@ export const FINCOPILOT: SeedCompany = {
 export const HEXAFLOOR: SeedCompany = {
   config: {
     name: 'Hexafloor',
-    budgetYear: 2026,
+    budgetYear: 2027,
     openingCash: 220_000,
     openingMrr: 120_000,
     arpa: 250,
