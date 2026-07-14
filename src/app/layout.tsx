@@ -1,5 +1,14 @@
 import type { Metadata } from "next";
+import { Poppins } from "next/font/google";
 import "./globals.css";
+
+// Poppins en 400/600/700 (cf. charte). Repli automatique sur la pile système via --font-sans.
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
+  variable: "--font-poppins",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Navette : campagne budgétaire",
@@ -13,8 +22,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className="h-full antialiased">
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
+    <html lang="fr" className={`h-full antialiased ${poppins.variable}`}>
+      <body className="min-h-full flex flex-col bg-page text-ink font-sans">
         {children}
       </body>
     </html>
