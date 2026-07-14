@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBusinessCases, computeBusinessCase, type AcceptedBusinessCase } from '../business-case';
+import { applyBusinessCases, businessCaseLines, computeBusinessCase, type AcceptedBusinessCase } from '../business-case';
 import { consolidate } from '../consolidate';
 import type { ConsolidationInputs } from '../types';
 
@@ -111,26 +111,65 @@ describe('applyBusinessCases : injection des cas acceptes dans la consolidation'
     params: { label: 'Projet X', horizonYears: 1, discountRate: 0.15, years: [{ revenue: 0, recurringCosts: 0, fte: 1, monthlyCostPerFte: 10_000, otherOpex: 20_000 }] },
   };
 
-  it('ajoute des lignes synthetiques payroll et opex sur le departement cible', () => {
+  it('ajoute des lignes libres sur le departement cible, sans creer de driver synthetique', () => {
     const applied = applyBusinessCases(baseInputs, [bc]);
-    expect(applied.driverDefs.map((d) => d.id)).toContain('bc-bc1-pay');
-    expect(applied.driverDefs.map((d) => d.id)).toContain('bc-bc1-opex');
+    // Le referentiel reste intact : une seule source de verite, aucun driver invente.
+    expect(applied.driverDefs).toEqual(baseInputs.driverDefs);
     const sub = applied.submissions.find((s) => s.departmentId === 'd1')!;
-    expect(sub.lines.length).toBe(3);
+    expect(sub.lines.length).toBe(3); // 1 ligne de referentiel + salaires + opex
     // n'altere pas les entrees d'origine
     expect(baseInputs.submissions[0].lines.length).toBe(1);
   });
 
-  it('le cout annuel du departement augmente des salaires et opex du business case', () => {
-    const res = consolidate(applyBusinessCases(baseInputs, [bc]));
-    expect(res.ok).toBe(true);
-    const d = res.departments.find((x) => x.departmentId === 'd1')!;
-    // base 400 000 + salaires 120 000 + opex 20 000
-    expect(d.annualCost).toBe(540_000);
+  it('les lignes portent le tag business case et le bon type', () => {
+    const lines = businessCaseLines(bc);
+    expect(lines.map((l) => l.kind)).toEqual(['payroll', 'opex']);
+    expect(lines.every((l) => l.label.startsWith('Business case : Projet X'))).toBe(true);
+  });
+
+  it('consolidation avec le business case = consolidation sans, plus ses montants, au centime pres', () => {
+    const sans = consolidate(baseInputs);
+    const avec = consolidate(applyBusinessCases(baseInputs, [bc]));
+    expect(avec.ok).toBe(true);
+    const dSans = sans.departments.find((x) => x.departmentId === 'd1')!;
+    const dAvec = avec.departments.find((x) => x.departmentId === 'd1')!;
+    // salaires 120 000 + opex 20 000
+    expect(dAvec.annualCost).toBeCloseTo(dSans.annualCost + 140_000, 2);
+    expect(avec.totals!.ebitda).toBeCloseTo(sans.totals!.ebitda - 140_000, 2);
+    expect(avec.totals!.endCash).toBeCloseTo(sans.totals!.endCash - 140_000, 2);
+  });
+
+  it('un invest one-off devient une ligne capex : hors EBITDA, mais deduite de la tresorerie', () => {
+    const withInvest: AcceptedBusinessCase = {
+      ...bc,
+      params: { ...bc.params, years: [{ ...bc.params.years[0], investment: 40_000 }] },
+    };
+    const sans = consolidate(baseInputs);
+    const avec = consolidate(applyBusinessCases(baseInputs, [withInvest]));
+    const lines = businessCaseLines(withInvest);
+    expect(lines.map((l) => l.kind)).toEqual(['payroll', 'opex', 'capex']);
+    // Le capex ne pese pas sur l EBITDA...
+    expect(avec.totals!.ebitda).toBeCloseTo(sans.totals!.ebitda - 140_000, 2);
+    // ...mais il se deduit de la tresorerie et compte dans l enveloppe.
+    expect(avec.totals!.endCash).toBeCloseTo(sans.totals!.endCash - 180_000, 2);
+    const d = avec.departments.find((x) => x.departmentId === 'd1')!;
+    const dSans = sans.departments.find((x) => x.departmentId === 'd1')!;
+    expect(d.annualCost).toBeCloseTo(dSans.annualCost + 180_000, 2);
+  });
+
+  it('aucun doublon : injecter le meme cas deux fois ne le compte pas deux fois par accident', () => {
+    // Un cas accepte n'apparait qu'une fois dans la liste : on verifie que l injection
+    // est bien additive et deterministe (deux appels successifs partent des memes entrees).
+    const a = consolidate(applyBusinessCases(baseInputs, [bc]));
+    const b = consolidate(applyBusinessCases(baseInputs, [bc]));
+    expect(a.totals!.ebitda).toBeCloseTo(b.totals!.ebitda, 2);
+    const sub = applyBusinessCases(baseInputs, [bc]).submissions.find((s) => s.departmentId === 'd1')!;
+    const ids = sub.lines.filter((l) => 'id' in l).map((l) => (l as { id: string }).id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('sans departement cible correspondant, les entrees sont inchangees', () => {
     const applied = applyBusinessCases(baseInputs, [{ ...bc, targetDepartmentId: 'inconnu' }]);
-    expect(applied.driverDefs.length).toBe(baseInputs.driverDefs.length);
+    expect(applied.submissions[0].lines.length).toBe(baseInputs.submissions[0].lines.length);
   });
 });

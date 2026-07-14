@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 import { SubmissionStatusBadge } from '@/components/navette-status-card';
-import { computeBusinessCase } from '@/lib/engine';
+import { businessCaseLines, computeBusinessCase } from '@/lib/engine';
 import type { DriverKind, LineFrequency } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
 import type { DriverDefRow, SubmissionRow } from '@/lib/data';
@@ -161,6 +161,16 @@ export default function NavettePage() {
   const canEditLines = isDraft && canManage;
   const prevQuarterLabel = `T4 ${data.company.budget_year - 1} (réalisé)`;
 
+  // Business cases du département. Un cas ACCEPTÉ est converti en lignes libres par le
+  // moteur (source de vérité unique, la même que la consolidation) : elles s'affichent
+  // en lecture seule dans leur section et comptent dans les sous-totaux et le total.
+  const deptBusinessCases = (data.businessCases ?? []).filter((bc) => bc.target_department_id === effectiveDeptId);
+  const bcLines = deptBusinessCases
+    .filter((bc) => bc.status === 'accepted' && bc.target_department_id)
+    .flatMap((bc) =>
+      businessCaseLines({ id: bc.id, label: bc.label, targetDepartmentId: bc.target_department_id!, params: bc.params }),
+    );
+
   /** Coût d'un trimestre pour une ligne du référentiel (un volume de clients n'est pas un coût). */
   const driverQuarterValue = (def: DriverDefRow, i: number): number => {
     const line = edit[def.id];
@@ -174,14 +184,16 @@ export default function NavettePage() {
   const sectionLines = (s: SectionDef) => ({
     drivers: defs.filter((d) => s.kinds.includes(d.kind)),
     customs: customs.filter((c) => s.kinds.includes(c.kind)),
+    bcs: bcLines.filter((l) => s.kinds.includes(l.kind)),
   });
 
-  /** Sous-total trimestriel d'une section (lignes classiques et libres confondues). */
+  /** Sous-total trimestriel d'une section (référentiel, lignes libres et business cases). */
   const sectionQuarters = (s: SectionDef): number[] => {
-    const { drivers, customs: cs } = sectionLines(s);
+    const { drivers, customs: cs, bcs } = sectionLines(s);
     const out = [0, 0, 0, 0];
     for (const def of drivers) for (let i = 0; i < 4; i++) out[i] += driverQuarterValue(def, i);
     for (const c of cs) for (let i = 0; i < 4; i++) out[i] += num(c.q[i]);
+    for (const l of bcs) for (let i = 0; i < 4; i++) out[i] += l.q[i];
     return out;
   };
 
@@ -196,8 +208,8 @@ export default function NavettePage() {
   // Une section s'affiche si elle a des lignes ; les sections extensibles restent
   // toujours visibles pour que l'ajout soit possible dans TOUS les départements.
   const visibleSections = SECTIONS.filter((s) => {
-    const { drivers, customs: cs } = sectionLines(s);
-    return drivers.length + cs.length > 0 || s.addKind !== undefined;
+    const { drivers, customs: cs, bcs } = sectionLines(s);
+    return drivers.length + cs.length + bcs.length > 0 || s.addKind !== undefined;
   });
 
   function validateLocally(): string[] {
@@ -497,8 +509,6 @@ export default function NavettePage() {
   }
   const canDecide = canArbitrate && latest?.status === 'submitted';
 
-  const deptBusinessCases = (data.businessCases ?? []).filter((bc) => bc.target_department_id === effectiveDeptId);
-
   return (
     <Page data={data}>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -609,11 +619,11 @@ export default function NavettePage() {
 
           {/* Sections par catégorie, déduites du kind des lignes */}
           {visibleSections.map((s) => {
-            const { drivers, customs: cs } = sectionLines(s);
+            const { drivers, customs: cs, bcs } = sectionLines(s);
             const subtotal = sectionQuarters(s);
             const hasHeadcount = drivers.some((d) => d.kind === 'headcount');
             const extensible = s.addKind !== undefined;
-            const empty = drivers.length + cs.length === 0;
+            const empty = drivers.length + cs.length + bcs.length === 0;
             return (
               <div key={s.id} className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
                 <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
@@ -758,6 +768,26 @@ export default function NavettePage() {
                                 </button>
                               </td>
                             )}
+                          </tr>
+                        ))}
+
+                        {/* Lignes issues d'un business case accepté : lecture seule, taguées */}
+                        {bcs.map((l) => (
+                          <tr key={l.id} className="border-b border-lav/60 bg-card-soft">
+                            <td className="px-5 py-2.5">
+                              <p className="font-semibold text-ink">{l.label}</p>
+                              <p className="text-xs text-ink/50">Ligne issue d’un business case accepté, non modifiable ici.</p>
+                            </td>
+                            <td className="px-3 py-2.5"><Badge tone="accent" dot="mint">Business case</Badge></td>
+                            {s.hasVendor && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                            {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                            {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                            <td className="px-3 py-2.5 text-ink/30 text-right">-</td>
+                            {[0, 1, 2, 3].map((i) => (
+                              <td key={i} className="px-3 py-2.5 text-right tabular-nums text-ink/70">{fmtQ(l.q[i])}</td>
+                            ))}
+                            {hasHeadcount && <td className="px-5 py-2.5 text-right text-ink/30">-</td>}
+                            {extensible && canEditLines && <td />}
                           </tr>
                         ))}
 

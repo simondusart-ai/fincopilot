@@ -58,9 +58,9 @@ export interface BusinessCaseResult {
   paybackMonths: number | null;
 }
 
-import type { ConsolidationInputs, DriverDef } from './types';
+import type { ConsolidationInputs, InlineSubmissionLine, QuarterValues } from './types';
 
-/** Business case accepte a injecter dans la consolidation. */
+/** Business case accepte a injecter dans la navette du departement cible. */
 export interface AcceptedBusinessCase {
   id: string;
   label: string;
@@ -68,34 +68,67 @@ export interface AcceptedBusinessCase {
   params: BusinessCaseInput;
 }
 
+/** Prefixe des libelles des lignes issues d'un business case (tag d'affichage). */
+export const BUSINESS_CASE_TAG = 'Business case';
+
 /**
- * Injecte les business cases acceptes dans des entrees de consolidation, sous forme
- * de lignes synthetiques payroll et opex (montants de l'annee 1, repartis en quatre
- * trimestres egaux) sur le departement cible. Fonction pure : le moteur de
- * consolidation n'est pas modifie, il traite ces lignes comme n'importe quelles autres.
- * Sans effet si le departement cible n'a pas de navette dans les entrees.
+ * SOURCE DE VERITE UNIQUE : convertit un business case accepte en lignes libres
+ * (inline) de l'annee 1, a AJOUTER a la navette du departement cible.
+ * - salaires : ligne payroll, mensuelle, repartie en quatre trimestres egaux ;
+ * - autres opex : ligne opex, mensuelle, repartie en quatre trimestres egaux ;
+ * - invest one-off : ligne capex, one_shot sur le premier trimestre.
+ * Le meme resultat alimente la consolidation ET l'affichage de la navette : aucun
+ * autre mecanisme d'injection n'existe, donc aucun double comptage possible.
+ */
+export function businessCaseLines(bc: AcceptedBusinessCase): InlineSubmissionLine[] {
+  const y1 = computeBusinessCase(bc.params).years[0];
+  if (!y1) return [];
+  const spread = (annual: number): QuarterValues => [annual / 4, annual / 4, annual / 4, annual / 4];
+  const lines: InlineSubmissionLine[] = [];
+  if (y1.salaries > 0) {
+    lines.push({
+      id: `bc-${bc.id}-pay`,
+      kind: 'payroll',
+      label: `${BUSINESS_CASE_TAG} : ${bc.label} (salaires)`,
+      frequency: 'mensuel',
+      q: spread(y1.salaries),
+    });
+  }
+  if (y1.otherOpex > 0) {
+    lines.push({
+      id: `bc-${bc.id}-opex`,
+      kind: 'opex',
+      label: `${BUSINESS_CASE_TAG} : ${bc.label} (opex)`,
+      frequency: 'mensuel',
+      q: spread(y1.otherOpex),
+    });
+  }
+  if (y1.investment > 0) {
+    lines.push({
+      id: `bc-${bc.id}-capex`,
+      kind: 'capex',
+      label: `${BUSINESS_CASE_TAG} : ${bc.label} (investissement)`,
+      frequency: 'one_shot',
+      q: [y1.investment, 0, 0, 0],
+    });
+  }
+  return lines;
+}
+
+/**
+ * Injecte les business cases acceptes dans des entrees de consolidation : leurs lignes
+ * s'AJOUTENT a la navette du departement cible, comme n'importe quelle ligne libre.
+ * Fonction pure, sans effet de bord sur `inputs`. Aucun driver synthetique n'est cree :
+ * le referentiel reste intact. Sans effet si le departement cible n'a pas de navette.
  */
 export function applyBusinessCases(inputs: ConsolidationInputs, cases: AcceptedBusinessCase[]): ConsolidationInputs {
-  const driverDefs: DriverDef[] = [...inputs.driverDefs];
   const submissions = inputs.submissions.map((s) => ({ ...s, lines: [...s.lines] }));
-
   for (const bc of cases) {
     const sub = submissions.find((s) => s.departmentId === bc.targetDepartmentId);
     if (!sub) continue;
-    const y1 = computeBusinessCase(bc.params).years[0];
-    if (!y1) continue;
-    const add = (suffix: string, kind: 'payroll' | 'opex', annual: number, labelSuffix: string) => {
-      if (annual <= 0) return;
-      const id = `bc-${bc.id}-${suffix}`;
-      driverDefs.push({ id, departmentId: bc.targetDepartmentId, code: id, label: `${bc.label} (${labelSuffix})`, kind });
-      const perQuarter = annual / 4;
-      sub.lines.push({ driverDefId: id, q: [perQuarter, perQuarter, perQuarter, perQuarter] });
-    };
-    add('pay', 'payroll', y1.salaries, 'salaires');
-    add('opex', 'opex', y1.otherOpex, 'opex');
+    sub.lines.push(...businessCaseLines(bc));
   }
-
-  return { ...inputs, driverDefs, submissions };
+  return { ...inputs, submissions };
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
