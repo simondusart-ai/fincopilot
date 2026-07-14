@@ -52,7 +52,17 @@ export type DriverKind =
   | 'opex' // dépenses hors salaires, en euros par trimestre (flux)
   | 'cogs' // coût des ventes du département, en euros par trimestre (flux)
   | 'channel_spend' // dépenses d'acquisition d'un canal, en euros par trimestre (flux)
-  | 'channel_customers'; // nouveaux clients d'un canal, en nombre par trimestre (flux)
+  | 'channel_customers' // nouveaux clients d'un canal, en nombre par trimestre (flux)
+  | 'capex'; // investissement, en euros par trimestre : hors EBITDA, déduit de la trésorerie
+
+/**
+ * Fréquence de décaissement d'une ligne, qui pilote sa mensualisation :
+ * - mensuel : un tiers du montant trimestriel chaque mois du trimestre ;
+ * - trimestriel : 100 % au dernier mois du trimestre ;
+ * - one_shot : 100 % au premier mois du trimestre saisi.
+ * Propriété garantie dans tous les cas : la somme des 12 mois égale la somme des 4 trimestres.
+ */
+export type LineFrequency = 'mensuel' | 'trimestriel' | 'one_shot';
 
 export interface DriverDef {
   id: string;
@@ -144,11 +154,13 @@ export interface MonthRow {
   opexTotal: number;
   /** Coûts totaux départements, COGS inclus (salaires + opex + canaux + COGS). */
   totalDeptCosts: number;
-  /** EBITDA = marge brute - coûts départements hors COGS (les COGS sont déjà dans la marge). */
+  /** Capex du mois : hors EBITDA et hors marge de contribution, mais déduit de la trésorerie. */
+  capexTotal: number;
+  /** EBITDA = marge brute - coûts départements hors COGS et hors capex. */
   ebitda: number;
-  /** Trésorerie de fin de mois. */
+  /** Trésorerie de fin de mois : cumul de (EBITDA - capex). */
   cash: number;
-  /** Runway en mois (trésorerie / burn moyen des 3 derniers mois). null si pas de burn. */
+  /** Runway en mois (trésorerie / flux de trésorerie moyen des 3 derniers mois). null si pas de burn. */
   runwayMonths: number | null;
   /** NRR annualisé du mois : ((MRR ouvert + expansion - churn) / MRR ouvert) ^ 12. */
   nrrAnnualized: number | null;

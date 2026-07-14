@@ -44,6 +44,7 @@ export default function DashboardPage() {
     { label: 'Autres opex', kind: 'line', fn: (m) => -M[m].opexTotal },
     { label: 'EBITDA', kind: 'solde', fn: (m) => M[m].ebitda },
     { label: 'Marge sur EBITDA (%)', kind: 'pct', fn: (m) => (M[m].revenue ? M[m].ebitda / M[m].revenue : NaN) },
+    { label: 'Capex', kind: 'line', fn: (m) => -M[m].capexTotal },
   ];
 
   // Pivot des CAC par canal : canaux en lignes, trimestres en colonnes.

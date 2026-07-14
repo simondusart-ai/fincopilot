@@ -25,6 +25,7 @@ function annualImpact(def: DriverDef, line: SubmissionLine | null, config: Compa
     case 'payroll':
     case 'opex':
     case 'cogs':
+    case 'capex':
     case 'channel_spend':
       return sum(line.q);
     case 'new_mrr':

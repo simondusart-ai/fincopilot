@@ -42,6 +42,7 @@ export async function exportConsolidation(
     ['Salaires', (m) => -result.months[m].payrollTotal],
     ['Autres opex', (m) => -result.months[m].opexTotal],
     ['EBITDA', (m) => result.months[m].ebitda],
+    ['Capex', (m) => -result.months[m].capexTotal],
     ['Trésorerie fin de mois', (m) => result.months[m].cash],
   ];
   for (const [label, fn] of rows) {

@@ -1,4 +1,4 @@
-import type { QuarterValues } from './types';
+import type { LineFrequency, QuarterValues } from './types';
 
 /** Indices des mois (0 à 11) composant chaque trimestre. */
 const QUARTER_MONTHS: ReadonlyArray<readonly [number, number, number]> = [
@@ -47,6 +47,34 @@ export function monthlyizeLevel(quarters: QuarterValues): number[] {
   const months = new Array<number>(12).fill(0);
   for (let q = 0; q < 4; q++) {
     for (const m of QUARTER_MONTHS[q]) months[m] = quarters[q];
+  }
+  return months;
+}
+
+/**
+ * Répartit des valeurs trimestrielles selon la fréquence de décaissement de la ligne.
+ * - mensuel : un tiers par mois du trimestre ;
+ * - trimestriel : 100 % au dernier mois du trimestre ;
+ * - one_shot : 100 % au premier mois du trimestre saisi.
+ * Propriété garantie : la somme des 12 mois est égale à la somme des 4 trimestres.
+ */
+export function monthlyizeByFrequency(quarters: QuarterValues, frequency: LineFrequency): number[] {
+  const months = new Array<number>(12).fill(0);
+  for (let q = 0; q < 4; q++) {
+    const value = quarters[q];
+    const idx = QUARTER_MONTHS[q];
+    switch (frequency) {
+      case 'trimestriel':
+        months[idx[2]] += value;
+        break;
+      case 'one_shot':
+        months[idx[0]] += value;
+        break;
+      case 'mensuel':
+      default:
+        for (let i = 0; i < 3; i++) months[idx[i]] += value / 3;
+        break;
+    }
   }
   return months;
 }

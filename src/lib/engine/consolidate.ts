@@ -23,8 +23,10 @@ export function fmtK(eur: number): string {
  * - le churn mensuel s'applique au MRR d'ouverture du mois ;
  * - les coûts des départements sont supposés hors coût des ventes : la marge brute
  *   est calculée par le taux de la config, l'EBITDA = marge brute - coûts départements ;
- * - burn du mois = EBITDA du mois (pas de capex ni de variation de BFR modélisés) ;
- * - runway du mois = trésorerie / burn moyen des 3 derniers mois (null si pas de burn).
+ * - le capex est exclu de l'EBITDA et de la marge de contribution, mais il compte dans
+ *   l'enveloppe du département et se déduit de la trésorerie le mois où il tombe ;
+ * - flux de trésorerie du mois = EBITDA - capex (pas de variation de BFR modélisée) ;
+ * - runway du mois = trésorerie / flux de trésorerie moyen des 3 derniers mois (null si pas de burn).
  */
 export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
   const blocking = validateInputs(inputs);
@@ -51,6 +53,7 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
   const payroll = zeros();
   const opex = zeros();
   const cogs = zeros();
+  const capex = zeros();
   /** true si la société déclare ses COGS en navettes : la marge brute devient revenu - COGS. */
   const hasCogs = driverDefs.some((d) => d.kind === 'cogs');
 
@@ -106,6 +109,16 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
           }
           break;
         }
+        case 'capex': {
+          // Hors EBITDA et hors marge de contribution (jamais dans sgna),
+          // mais compte dans l'enveloppe et se déduit de la trésorerie.
+          const flow = monthlyizeFlow(line.q, key);
+          for (let m = 0; m < 12; m++) {
+            capex[m] += flow[m];
+            costs[m] += flow[m];
+          }
+          break;
+        }
         case 'revenue_other': {
           const flow = monthlyizeFlow(line.q, key);
           for (let m = 0; m < 12; m++) otherRevenue[m] += flow[m];
@@ -151,7 +164,8 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
   const months: MonthRow[] = [];
   let mrrOpen = config.openingMrr;
   let cash = config.openingCash;
-  const ebitdaHistory: number[] = [];
+  /** Flux de trésorerie mensuels (EBITDA - capex), base du runway. */
+  const cashFlowHistory: number[] = [];
 
   for (let m = 0; m < 12; m++) {
     const churnedMrr = mrrOpen * config.monthlyChurnPct;
@@ -170,11 +184,13 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
 
     const contributionMargin = grossMargin - smSpend;
     // Les COGS sont déjà déduits dans la marge brute : l'EBITDA ne retranche que le hors COGS.
+    // Le capex n'est pas dans sgna : il ne pèse ni sur l'EBITDA ni sur la marge de contribution.
     const ebitda = grossMargin - totalSgna;
-    cash += ebitda;
-    ebitdaHistory.push(ebitda);
+    const cashFlow = ebitda - capex[m];
+    cash += cashFlow;
+    cashFlowHistory.push(cashFlow);
 
-    const window = ebitdaHistory.slice(-3);
+    const window = cashFlowHistory.slice(-3);
     const avgBurn = sum(window) / window.length;
     let runwayMonths: number | null;
     if (cash <= 0) runwayMonths = 0;
@@ -200,6 +216,7 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
       payrollTotal: payroll[m],
       opexTotal: opex[m],
       totalDeptCosts,
+      capexTotal: capex[m],
       ebitda,
       cash,
       runwayMonths,
