@@ -1,4 +1,5 @@
 import type {
+  ActualMonthInput,
   CompanyConfig,
   ConsolidationInputs,
   DriverKind,
@@ -64,11 +65,28 @@ export interface SeedUser {
 
 export interface SeedCompany {
   config: CompanyConfig;
+  /** Base clients au 1er janvier de la premiere annee d'historique. */
+  openingClients: number;
+  /** Cible de CAC moyen charge, en euros. null = pas de cible. */
+  cacAvgTarget: number | null;
   departments: SeedDepartment[];
   channels: SeedChannel[];
   driverDefs: SeedDriverDef[];
   submissions: SeedSubmission[];
   users: SeedUser[];
+}
+
+/** P&L annuel realise (structure Annexe A), valeurs en euros. */
+export interface PnlYearSeed {
+  year: number;
+  revenue: number;
+  sm: number;
+  techProduct: number;
+  payrollOther: number;
+  ga: number;
+  ebitda: number;
+  da: number;
+  netIncome: number;
 }
 
 const K = 1000;
@@ -100,6 +118,8 @@ export const FINCOPILOT: SeedCompany = {
       saison_fiscale: [0.6, 0.6, 0.8, 1.2, 1.6, 1.5, 1.2, 0.8, 0.8, 0.9, 1, 1],
     },
   },
+  openingClients: 13_000,
+  cacAvgTarget: 515,
   departments: [
     { id: 'fc-tech', code: 'TEC', name: 'Tech & Product', envelope: 5_000_000, isSalesMarketing: false, sort: 1 },
     { id: 'fc-sales', code: 'SAL', name: 'Sales', envelope: 1_200_000, isSalesMarketing: true, sort: 2 },
@@ -253,6 +273,8 @@ export const HEXAFLOOR: SeedCompany = {
     runwayFreezeMonths: 9,
     paybackCapMonths: 24,
   },
+  openingClients: 0,
+  cacAvgTarget: null,
   departments: [
     { id: 'hx-prod', code: 'PRD', name: 'Produit & Tech', envelope: 1_250_000, isSalesMarketing: false, sort: 1 },
     { id: 'hx-com', code: 'COM', name: 'Commerce', envelope: 1_050_000, isSalesMarketing: true, sort: 2 },
@@ -318,6 +340,40 @@ export const HEXAFLOOR: SeedCompany = {
     { email: 'support@hexafloor.demo', password: DEMO_PASSWORD, fullName: 'Head of Support & Admin', role: 'head_of', departmentId: 'hx-sup' },
   ],
 };
+
+/* ----------------------------------------------------------------------------
+ * Historique realise FinCopilot (annee N = 2026). Valeurs en euros.
+ * Sert a alimenter l'ecran de pilotage et a ancrer les tests du moteur actuals.
+ * Hexafloor n'a aucun historique : ses tables restent vides.
+ * -------------------------------------------------------------------------- */
+
+/** P&L annuel realise 2024-2026 (structure Annexe A, valeurs en euros). */
+export const FINCOPILOT_PNL_YEARS: PnlYearSeed[] = [
+  { year: 2024, revenue: 3_600_000, sm: 1_800_000, techProduct: 1_000_000, payrollOther: 1_600_000, ga: 500_000, ebitda: -1_300_000, da: -50_000, netIncome: -1_350_000 },
+  { year: 2025, revenue: 8_600_000, sm: 4_000_000, techProduct: 2_000_000, payrollOther: 2_600_000, ga: 800_000, ebitda: -800_000, da: -70_000, netIncome: -870_000 },
+  { year: 2026, revenue: 12_000_000, sm: 7_000_000, techProduct: 2_500_000, payrollOther: 3_500_000, ga: 900_000, ebitda: -1_900_000, da: -100_000, netIncome: -2_000_000 },
+];
+
+/**
+ * Indicateurs mensuels realises 2026 (euros).
+ * sm_spend = CAC trimestriel de l'Annexe A x nouveaux clients du mois (estimation
+ * documentee dans DOCUMENTATION.md, section Limites). revenue_month : null partout.
+ * La tresorerie n'est renseignee qu'a partir de juillet (donnee manquante = null).
+ */
+export const FINCOPILOT_ACTUALS_2026: ActualMonthInput[] = [
+  { month: 1, newClients: 834, churnedClients: 234, mrrEnd: 542_000, revenueMonth: null, smSpend: 350_280, cashEnd: null, nrrMeasured: 1.06 },
+  { month: 2, newClients: 953, churnedClients: 233, mrrEnd: 572_000, revenueMonth: null, smSpend: 400_260, cashEnd: null, nrrMeasured: 1.06 },
+  { month: 3, newClients: 1210, churnedClients: 250, mrrEnd: 612_000, revenueMonth: null, smSpend: 508_200, cashEnd: null, nrrMeasured: 1.06 },
+  { month: 4, newClients: 1015, churnedClients: 247, mrrEnd: 644_000, revenueMonth: null, smSpend: 498_365, cashEnd: null, nrrMeasured: 1.04 },
+  { month: 5, newClients: 1150, churnedClients: 262, mrrEnd: 681_000, revenueMonth: null, smSpend: 564_650, cashEnd: null, nrrMeasured: 1.04 },
+  { month: 6, newClients: 1195, churnedClients: 259, mrrEnd: 720_000, revenueMonth: null, smSpend: 586_745, cashEnd: null, nrrMeasured: 1.04 },
+  { month: 7, newClients: 1039, churnedClients: 271, mrrEnd: 752_000, revenueMonth: null, smSpend: 583_918, cashEnd: 7_400_000, nrrMeasured: 1.01 },
+  { month: 8, newClients: 788, churnedClients: 260, mrrEnd: 774_000, revenueMonth: null, smSpend: 442_856, cashEnd: 7_220_000, nrrMeasured: 1.01 },
+  { month: 9, newClients: 1307, churnedClients: 275, mrrEnd: 817_000, revenueMonth: null, smSpend: 734_534, cashEnd: 7_010_000, nrrMeasured: 1.01 },
+  { month: 10, newClients: 1227, churnedClients: 267, mrrEnd: 857_000, revenueMonth: null, smSpend: 788_961, cashEnd: 6_770_000, nrrMeasured: 0.99 },
+  { month: 11, newClients: 1264, churnedClients: 280, mrrEnd: 898_000, revenueMonth: null, smSpend: 812_752, cashEnd: 6_510_000, nrrMeasured: 0.99 },
+  { month: 12, newClients: 1131, churnedClients: 291, mrrEnd: 933_000, revenueMonth: null, smSpend: 727_233, cashEnd: 6_230_000, nrrMeasured: 0.99 },
+];
 
 /** Construit les entrées du moteur à partir d'une société de seed (dernière version soumise par département). */
 export function seedToEngineInputs(seed: SeedCompany): ConsolidationInputs {
