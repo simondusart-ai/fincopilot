@@ -53,6 +53,7 @@ export default function NavettePage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
+  const [note, setNote] = useState('');
 
   const effectiveDeptId = deptId ?? data?.profile.department_id ?? data?.departments[0]?.id ?? null;
   const dept = data?.departments.find((d) => d.id === effectiveDeptId) ?? null;
@@ -237,10 +238,70 @@ export default function NavettePage() {
     .filter((bc) => bc.status === 'accepted')
     .reduce((sum, bc) => { const y1 = computeBusinessCase(bc.params).years[0]; return sum + (y1 ? y1.salaries + y1.otherOpex : 0); }, 0);
 
-  const submittedDate =
-    latest && !isDraft && latest.submitted_at
-      ? new Date(latest.submitted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-      : null;
+  /** Decision du CFO ou du CEO sur la derniere version soumise. */
+  async function decideSubmission(status: 'approved' | 'rejected') {
+    if (!latest || latest.status !== 'submitted') return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { data: authUser } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from('submissions')
+        .update({
+          status,
+          decided_by: authUser.user!.id,
+          decided_at: new Date().toISOString(),
+          decision_note: note.trim() === '' ? null : note.trim(),
+        })
+        .eq('id', latest.id);
+      if (error) throw new Error(error.message);
+      setMessage(
+        status === 'approved'
+          ? `Navette v${latest.version} validée : elle reste consolidée.`
+          : `Navette v${latest.version} renvoyée au métier : elle sort de la consolidation, une nouvelle version est attendue.`,
+      );
+      setNote('');
+      await reload();
+    } catch (e) {
+      setMessage(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
+
+  // Timeline : une entrée par événement, dans l'ordre chronologique des versions.
+  const versionsAsc = [...submissions].sort((a, b) => a.version - b.version);
+  const events: { key: string; badge: React.ReactNode; text: string; note?: string }[] = [];
+  for (const s of versionsAsc) {
+    if (s.status === 'draft') {
+      events.push({ key: `${s.id}-d`, badge: <Badge tone="peach">Brouillon</Badge>, text: `v${s.version} en brouillon` });
+      continue;
+    }
+    events.push({
+      key: `${s.id}-s`,
+      badge: <Badge tone="accent" dot="mint">Soumise</Badge>,
+      text: s.submitted_at ? `v${s.version} soumise le ${fmtDate(s.submitted_at)}` : `v${s.version} soumise`,
+    });
+    if (s.status === 'approved') {
+      events.push({
+        key: `${s.id}-a`,
+        badge: <Badge tone="accent">Validée</Badge>,
+        text: s.decided_at ? `v${s.version} validée le ${fmtDate(s.decided_at)}` : `v${s.version} validée`,
+        note: s.decision_note ?? undefined,
+      });
+    }
+    if (s.status === 'rejected') {
+      events.push({
+        key: `${s.id}-r`,
+        badge: <Badge tone="danger">Renvoyée</Badge>,
+        text: s.decided_at ? `v${s.version} renvoyée le ${fmtDate(s.decided_at)}` : `v${s.version} renvoyée`,
+        note: s.decision_note ?? undefined,
+      });
+    }
+  }
+  const canDecide = canArbitrate && latest?.status === 'submitted';
 
   return (
     <Page data={data}>
@@ -290,31 +351,69 @@ export default function NavettePage() {
             />
           </div>
 
-          {/* Barre de version */}
-          <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
-            <Badge tone="muted">{latest ? `Version v${latest.version}` : 'Aucune version'}</Badge>
-            {latest &&
-              (isDraft ? (
-                <Badge tone="peach">Brouillon</Badge>
-              ) : (
-                <Badge tone="accent" dot="mint">Soumise (figée)</Badge>
-              ))}
-            <div className="ml-auto flex gap-2">
-              {canManage && (isDraft ? (
-                <>
-                  <button onClick={saveDraft} disabled={busy} className={btnSecondary}>
-                    Enregistrer le brouillon
-                  </button>
-                  <button onClick={submitVersion} disabled={busy} className={btnPrimary}>
-                    Soumettre la navette
-                  </button>
-                </>
-              ) : (
-                <button onClick={createVersion} disabled={busy || defs.length === 0} className={btnPrimary}>
-                  {latest ? `Nouvelle version (v${latest.version + 1})` : 'Créer la navette v1'}
-                </button>
-              ))}
+          {/* Suivi de la navette : timeline des versions et des décisions */}
+          <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="font-semibold text-ink">Suivi de la navette</h2>
+              {latest && <Badge tone="muted">Version v{latest.version}</Badge>}
             </div>
+
+            {events.length === 0 ? (
+              <p className="mt-2 text-sm text-ink/60">Aucune version pour l’instant.</p>
+            ) : (
+              <ol className="mt-4 space-y-4 border-l border-lav pl-5">
+                {events.map((e) => (
+                  <li key={e.key} className="relative">
+                    <span className="absolute -left-[23px] top-2 h-2 w-2 rounded-full bg-lav" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {e.badge}
+                      <span className="text-sm text-ink">{e.text}</span>
+                    </div>
+                    {e.note && <p className="mt-1 text-sm italic text-ink/60">Motif : {e.note}</p>}
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {canManage && (
+              <div className="mt-5 flex flex-wrap gap-2">
+                {isDraft ? (
+                  <>
+                    <button onClick={saveDraft} disabled={busy} className={btnSecondary}>
+                      Enregistrer le brouillon
+                    </button>
+                    <button onClick={submitVersion} disabled={busy} className={btnPrimary}>
+                      Soumettre la navette
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={createVersion} disabled={busy || defs.length === 0} className={btnPrimary}>
+                    {latest ? `Nouvelle version (v${latest.version + 1})` : 'Créer la navette v1'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {canDecide && (
+              <div className="mt-5 border-t border-lav/60 pt-4">
+                <p className="text-sm font-semibold text-ink">Décision sur la v{latest!.version} soumise</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Motif (facultatif)"
+                    className={`w-72 bg-white ${inputBase}`}
+                  />
+                  <button onClick={() => decideSubmission('approved')} disabled={busy} className={btnPrimary}>
+                    Valider
+                  </button>
+                  <button onClick={() => decideSubmission('rejected')} disabled={busy} className={btnSecondary}>
+                    Renvoyer
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Encart d'erreurs de soumission */}
@@ -468,18 +567,7 @@ export default function NavettePage() {
             </div>
           )}
 
-          {submittedDate && (
-            <p className="mt-3 text-xs italic text-ink/50">
-              Version v{latest!.version} soumise le {submittedDate} · lecture seule.
-            </p>
-          )}
           {message && <p className="mt-4 text-sm text-ink/70">{message}</p>}
-
-          {submissions.length > 1 && (
-            <p className="mt-4 text-xs text-ink/40">
-              Historique : {submissions.map((s) => `v${s.version} (${s.status === 'draft' ? 'brouillon' : 'soumise'})`).join(', ')}.
-            </p>
-          )}
         </>
       )}
     </Page>

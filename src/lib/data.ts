@@ -82,15 +82,24 @@ export interface BusinessCaseRow {
   created_at: string;
 }
 
+export type SubmissionStatusRow = 'draft' | 'submitted' | 'approved' | 'rejected';
+
 export interface SubmissionRow {
   id: string;
   department_id: string;
   version: number;
-  status: 'draft' | 'submitted';
+  status: SubmissionStatusRow;
   created_by: string;
   submitted_at: string | null;
   created_at: string;
+  /** Decision du CFO ou du CEO sur une navette soumise. */
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
 }
+
+/** Statuts qui font foi pour la consolidation : soumise, ou validee (une rejetee est ignoree). */
+export const CONSOLIDATED_STATUSES: readonly SubmissionStatusRow[] = ['submitted', 'approved'];
 
 export interface SubmissionLineRow {
   id: string;
@@ -263,14 +272,20 @@ export function toSubmission(row: SubmissionRow, allLines: SubmissionLineRow[]):
       q: [Number(l.q1), Number(l.q2), Number(l.q3), Number(l.q4)] as QuarterValues,
       unitCost: l.unit_cost === null ? undefined : Number(l.unit_cost),
     }));
-  return { departmentId: row.department_id, version: row.version, status: row.status, lines };
+  // Le moteur ne connaît que brouillon ou soumise : une navette validée reste soumise à ses yeux.
+  const status = row.status === 'draft' ? 'draft' : 'submitted';
+  return { departmentId: row.department_id, version: row.version, status, lines };
 }
 
-/** Dernière version soumise par département (celle qui fait foi pour la consolidation). */
+/**
+ * Version qui fait foi pour la consolidation, par département : la dernière version
+ * SOUMISE NON REJETÉE. Une version rejetée est ignorée (on retombe sur la précédente
+ * qui fait foi) ; une version validée reste consolidée ; un brouillon ne compte jamais.
+ */
 export function latestSubmittedByDept(submissions: SubmissionRow[]): Map<string, SubmissionRow> {
   const map = new Map<string, SubmissionRow>();
   for (const s of submissions) {
-    if (s.status !== 'submitted') continue;
+    if (!CONSOLIDATED_STATUSES.includes(s.status)) continue;
     const cur = map.get(s.department_id);
     if (!cur || s.version > cur.version) map.set(s.department_id, s);
   }
