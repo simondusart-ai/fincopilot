@@ -148,7 +148,10 @@ export const FINCOPILOT: SeedCompany = {
     { id: 'fc-tech', code: 'TEC', name: 'Tech & Product', envelope: 5_000_000, isSalesMarketing: false, sort: 1 },
     { id: 'fc-sales', code: 'SAL', name: 'Sales', envelope: 1_200_000, isSalesMarketing: true, sort: 2 },
     { id: 'fc-growth', code: 'GRW', name: 'Growth', envelope: 5_800_000, isSalesMarketing: true, sort: 3 },
-    { id: 'fc-ops', code: 'OPS', name: 'Ops / CS', envelope: 3_300_000, isSalesMarketing: false, sort: 4 },
+    // Enveloppe Ops portee a 3 400 K€ : le scenario rebound loge COGS + structure dans les
+    // departements hors S&M sans depassement (le breakeven +140 depasse de 60 K€ le cadrage
+    // de structure d'origine). Sans effet sur l'histoire v1/v2 de Growth ni sur la conso seed.
+    { id: 'fc-ops', code: 'OPS', name: 'Ops / CS', envelope: 3_400_000, isSalesMarketing: false, sort: 4 },
     { id: 'fc-fap', code: 'FAP', name: 'FA&P', envelope: 1_300_000, isSalesMarketing: false, sort: 5 },
   ],
   channels: [

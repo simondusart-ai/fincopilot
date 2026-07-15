@@ -25,6 +25,8 @@ export type {
   SimulatedDriverLine,
   SimulatedCustomLine,
 } from './simulate-round';
+export { fillScenario } from './scenario-fill';
+export type { FillScenarioParams, FillScenarioResult, FillScenarioTargets } from './scenario-fill';
 export { computeActuals } from './actuals';
 export type {
   ActualsParams,

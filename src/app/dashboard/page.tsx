@@ -3,15 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { MonthlyChart } from '@/components/monthly-chart';
-import { ScenariosSection } from '@/components/scenarios-section';
 import { NavetteStatusCard } from '@/components/navette-status-card';
 import { CollapsiblePnlTable, type PnlTableRow } from '@/components/pnl-table';
 import { InfoTip } from '@/components/info-tip';
 import { AlertBanners } from '@/components/alert-banner';
 import { getSupabase } from '@/lib/supabase';
-import { buildConsolidationInputs, loadActuals, toChannel, toCompanyConfig, toDepartment, toDriverDef } from '@/lib/data';
-import type { ActualsData, BudgetMode, SubmissionRow } from '@/lib/data';
-import { consolidate, effectiveMonthlyChurn, projectBaseline, simulateRound } from '@/lib/engine';
+import { buildConsolidationInputs, loadActuals, loadSimulationAssumptions, toChannel, toCompanyConfig, toDepartment, toDriverDef, toScenarioAssumptions } from '@/lib/data';
+import type { ActualsData, BudgetMode, SimulationAssumptionsRow, SubmissionRow } from '@/lib/data';
+import { consolidate, effectiveMonthlyChurn, fillScenario, projectBaseline, simulateRound, type ScenarioHistoryYearN } from '@/lib/engine';
 import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
 
@@ -119,6 +118,8 @@ export default function DashboardPage() {
   const [cycleMsg, setCycleMsg] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
   const [actuals, setActuals] = useState<ActualsData | null>(null);
+  const [simAssumptions, setSimAssumptions] = useState<SimulationAssumptionsRow | null>(null);
+  const [scenarioMsg, setScenarioMsg] = useState<string | null>(null);
   const [baselineKpiOpen, setBaselineKpiOpen] = useState(true);
   // Edition en ligne du cadrage depuis l'ecran Budget (enveloppe d'un departement,
   // plafond de CAC d'un canal). Une seule cellule editable a la fois.
@@ -135,6 +136,10 @@ export default function DashboardPage() {
     loadActuals()
       .then((a) => { if (!cancelled) setActuals(a); })
       .catch(() => { if (!cancelled) setActuals(null); });
+    // Hypotheses de simulation : source des cibles des scenarios as is / rebound (demonstration).
+    loadSimulationAssumptions()
+      .then((r) => { if (!cancelled) setSimAssumptions(r); })
+      .catch(() => { if (!cancelled) setSimAssumptions(null); });
     return () => { cancelled = true; };
   }, [data]);
 
@@ -306,6 +311,77 @@ export default function DashboardPage() {
       await reload();
     } catch (e) {
       setCycleMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Remplit et soumet toutes les navettes selon un scenario (as is / rebound), comme
+   * "Simuler un round" mais sur les cibles du scenario : la consolidation existante affiche
+   * alors le P&L du scenario. Le contenu vient du moteur (fillScenario), rien n'est code ici.
+   */
+  async function simulateScenarioNow(mode: 'asIs' | 'rebound') {
+    if (!simAssumptions) return;
+    setBusy(true);
+    setScenarioMsg(null);
+    setCycleMsg(null);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const prevPnl = actuals?.pnlYears.find((y) => y.year === data!.company.budget_year - 1);
+      if (!prevPnl) throw new Error('Historique réalisé indisponible : impossible de projeter le scénario.');
+      // Dernier exercice realise N (K€) : le S&M et la structure calent la projection.
+      const gm = Number(simAssumptions.gross_margin_pct);
+      const caK = Number(prevPnl.revenue) / 1000;
+      const smK = Number(prevPnl.sm) / 1000;
+      const otherK = (Number(prevPnl.tech_product) + Number(prevPnl.payroll_other) + Number(prevPnl.ga)) / 1000;
+      const history: ScenarioHistoryYearN = { ca: caK, sm: smK, structure: otherK - caK * (1 - gm) };
+      const fill = fillScenario({
+        mode,
+        config: toCompanyConfig(data!.company),
+        departments: data!.departments.map(toDepartment),
+        driverDefs: data!.driverDefs.map(toDriverDef),
+        channels: data!.channels.map(toChannel),
+        history,
+        assumptions: toScenarioAssumptions(simAssumptions),
+        cacTrajectory: simAssumptions.cac_trajectory,
+      });
+      const maxVer = new Map<string, number>();
+      for (const s of data!.submissions) maxVer.set(s.department_id, Math.max(maxVer.get(s.department_id) ?? 0, s.version));
+      let count = 0;
+      for (const dept of fill.departments) {
+        const version = (maxVer.get(dept.departmentId) ?? 0) + 1;
+        const { data: created, error: eSub } = await supabase
+          .from('submissions')
+          .insert({ department_id: dept.departmentId, version, status: 'draft', created_by: auth.user!.id })
+          .select()
+          .single();
+        if (eSub) throw new Error(eSub.message);
+        const subId = (created as SubmissionRow).id;
+        if (dept.driverLines.length > 0) {
+          const { error } = await supabase.from('submission_lines').insert(
+            dept.driverLines.map((l) => ({ submission_id: subId, driver_def_id: l.driverDefId, q1: l.q[0], q2: l.q[1], q3: l.q[2], q4: l.q[3], unit_cost: l.unitCost ?? null })),
+          );
+          if (error) throw new Error(error.message);
+        }
+        if (dept.customLines.length > 0) {
+          const { error } = await supabase.from('submission_custom_lines').insert(
+            dept.customLines.map((c, i) => ({ submission_id: subId, kind: c.kind, label: c.label, is_new: c.isNew, vendor: null, frequency: c.frequency, amount: null, oneshot_quarter: null, sort: i, q1: c.q[0], q2: c.q[1], q3: c.q[2], q4: c.q[3] })),
+          );
+          if (error) throw new Error(error.message);
+        }
+        const { error: eUp } = await supabase.from('submissions').update({ status: 'submitted', submitted_at: new Date().toISOString() }).eq('id', subId);
+        if (eUp) throw new Error(eUp.message);
+        count++;
+      }
+      setScenarioMsg(
+        mode === 'asIs'
+          ? `Navettes remplies selon le scénario as is : ${count} navettes soumises. La consolidation ci-dessous ressort le scénario (EBITDA cible -5 110 K€).`
+          : `Navettes remplies selon le scénario rebound : ${count} navettes soumises. La consolidation ci-dessous ressort le scénario (EBITDA cible +140 K€).`,
+      );
+      await reload();
+    } catch (e) {
+      setScenarioMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -570,7 +646,6 @@ export default function DashboardPage() {
     ['contribution', 'Départements'],
   ];
   if (channelOrder.length > 0) okNav.push(['cac', 'CAC']);
-  okNav.push(['scenarios', 'Scénarios']);
   const navItems: [string, string][] = result.ok
     ? okNav
     : [['navettes', 'Navettes'], ...(baseline ? ([['kpis', 'Indicateurs'], ['pnl', 'P&L'], ['tresorerie', 'Trésorerie']] as [string, string][]) : [])];
@@ -679,18 +754,31 @@ export default function DashboardPage() {
                 Pré-remplit toutes les navettes avec un budget cohérent (CA +40 %, COGS 30 %, coûts au cadrage), les soumet et incrémente la version.
               </span>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => document.getElementById('scenarios')?.scrollIntoView({ behavior: 'smooth' })}
-                className={btnSecondary}
-              >
-                Simuler les scénarios as is / rebound
-              </button>
-              <span className="text-xs text-ink/50">
-                Descend jusqu&apos;à la section Scénarios : la projection pluriannuelle « as is » et « rebound » à partir du dernier P&amp;L réalisé.
-              </span>
-            </div>
+            {simAssumptions && (
+              <>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button onClick={() => simulateScenarioNow('asIs')} disabled={busy} className={btnSecondary}>
+                    Simuler le scénario as is
+                  </button>
+                  <span className="text-xs text-ink/50">
+                    Remplit les navettes sur les tendances de l&apos;année N : S&amp;M +75 %, CA +40 %. La consolidation doit ressortir l&apos;EBITDA du scénario (-5 110 K€).
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button onClick={() => simulateScenarioNow('rebound')} disabled={busy} className={btnSecondary}>
+                    Simuler le scénario rebound
+                  </button>
+                  <span className="text-xs text-ink/50">
+                    Remplit les navettes sur la recommandation 1 : S&amp;M gelé à 7 000 K€, CA +40 %. La consolidation doit ressortir l&apos;EBITDA du scénario (+140 K€).
+                  </span>
+                </div>
+              </>
+            )}
           </div>
+
+          {scenarioMsg && (
+            <div className="mt-4 rounded-xl bg-lav px-4 py-3 text-sm font-medium text-ink">{scenarioMsg}</div>
+          )}
 
           {cycleMsg && <p className="mt-3 text-sm text-ink/70">{cycleMsg}</p>}
         </div>
@@ -949,15 +1037,6 @@ export default function DashboardPage() {
               {cadrageMsg && editCell?.kind === 'cap' && <p className="mt-2 text-sm text-red-600">{cadrageMsg}</p>}
             </section>
           )}
-
-          {/* 9. Scénarios pluriannuels : lecture prospective du budget (as is / rebound) */}
-          <section className="mt-8">
-            <SectionTitle id="scenarios">Scénarios pluriannuels</SectionTitle>
-            <p className="mt-1 text-sm text-ink/60">
-              Projection N+1 à N+3 à partir du P&amp;L de l&apos;année N ; hypothèses modifiables.
-            </p>
-            <ScenariosSection pnlYears={actuals?.pnlYears ?? null} budgetYear={data.company.budget_year} />
-          </section>
         </>
       )}
     </Page>
