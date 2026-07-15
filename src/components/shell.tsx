@@ -76,6 +76,41 @@ export function Badge({
   );
 }
 
+/** Pictos lineaires des liens secondaires : trait 1,5, couleur primary, meme famille que l'app. */
+function NavIcon({ name }: { name: 'coin' | 'sliders' }) {
+  const common = {
+    width: 16,
+    height: 16,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.5,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+    className: 'shrink-0 text-primary',
+  };
+  if (name === 'coin') {
+    // Piece avec un euro : cercle, courbe du "C" et deux barres.
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M14.5 9.5a3 3 0 0 0-4.6.9 4.5 4.5 0 0 0 0 3.2 3 3 0 0 0 4.6.9" />
+        <path d="M8.5 11.2h4M8.5 12.8h4" />
+      </svg>
+    );
+  }
+  // Curseurs de reglage (sliders horizontaux).
+  return (
+    <svg {...common}>
+      <path d="M4 7h10M18 7h2" />
+      <circle cx="16" cy="7" r="2" />
+      <path d="M4 17h4M12 17h8" />
+      <circle cx="10" cy="17" r="2" />
+    </svg>
+  );
+}
+
 export function Header({ data }: { data: PortalData | null }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -92,9 +127,10 @@ export function Header({ data }: { data: PortalData | null }) {
     { n: 3, href: '/pilotage', label: 'Pilotage', enabled: true },
   ];
   // Onglets support, hors processus. Diff retire de la nav (accessible depuis Ma navette).
+  // Business case : pill bordee (picto piece). Reglages : lien texte simple (picto sliders).
   const support = [
-    { href: '/business-case', label: 'Business case', show: true },
-    { href: '/reglages', label: 'Réglages', show: role === 'cfo' },
+    { href: '/business-case', label: 'Business case', show: true, icon: 'coin' as const, bordered: true },
+    { href: '/reglages', label: 'Réglages', show: role === 'cfo', icon: 'sliders' as const, bordered: false },
   ].filter((l) => l.show);
   // Etape active detectee par l'URL. Les etapes avant sont "cochees", celles apres "a venir".
   const activeIndex = steps.findIndex((s) => pathname === s.href);
@@ -109,9 +145,10 @@ export function Header({ data }: { data: PortalData | null }) {
           horizontalement en largeur reduite plutot que de wrapper ou de chevaucher. */}
       <div className="flex items-center gap-4 rounded-3xl bg-white px-4 py-2.5 shadow-sm">
         <div className="flex min-w-0 flex-1 items-center gap-4 overflow-x-auto">
-          <Link href="/" aria-label="Navette, accueil" className="shrink-0">
+          {/* Logo non cliquable, sans etat de survol (cf. maquette). */}
+          <span className="shrink-0">
             <Logo size="sm" />
-          </Link>
+          </span>
           {/* Stepper : les trois etapes du parcours dans un conteneur pill clair. */}
           <nav className="flex shrink-0 items-center gap-0.5 rounded-full bg-card-soft p-1" aria-label="Étapes du processus">
             {steps.map((s, i) => {
@@ -151,23 +188,31 @@ export function Header({ data }: { data: PortalData | null }) {
           </nav>
         </div>
 
-        {/* Bloc de droite : liens secondaires, identite, deconnexion. */}
-        <div className="flex shrink-0 items-center gap-4">
-          <nav className="flex items-center gap-1" aria-label="Outils">
-            {support.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={`whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-card-soft ${pathname === l.href ? 'bg-card-soft' : ''}`}
-              >
-                {l.label}
-              </Link>
-            ))}
+        {/* Bloc de droite : liens secondaires, separateur, identite, deconnexion. */}
+        <div className="flex shrink-0 items-center gap-3">
+          <nav className="flex items-center gap-1.5" aria-label="Outils">
+            {support.map((l) => {
+              const active = pathname === l.href;
+              const border = l.bordered ? 'border border-lav' : '';
+              const bg = active ? 'bg-card-soft' : l.bordered ? 'bg-white' : '';
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-card-soft ${border} ${bg}`}
+                >
+                  <NavIcon name={l.icon} />
+                  {l.label}
+                </Link>
+              );
+            })}
           </nav>
+          {/* Separateur vertical fin (rendu uniquement quand l'identite suit, jamais orphelin). */}
+          {data && <span className="h-6 w-px bg-lav" aria-hidden="true" />}
           {data && (
-            <div className="hidden flex-col items-end leading-tight sm:flex">
-              <span className="whitespace-nowrap text-sm font-bold text-ink">{data.profile.full_name}</span>
-              <span className="whitespace-nowrap text-xs text-ink/50">{roleLabel}</span>
+            <div className="hidden flex-col items-end text-right leading-tight sm:flex">
+              <span className="text-sm font-bold text-ink">{data.profile.full_name}</span>
+              <span className="text-xs text-zinc-500">{roleLabel}</span>
             </div>
           )}
           <button
@@ -175,7 +220,7 @@ export function Header({ data }: { data: PortalData | null }) {
               await getSupabase().auth.signOut();
               router.replace('/login');
             }}
-            className="whitespace-nowrap rounded-full border border-primary bg-white px-4 py-1.5 text-sm font-semibold text-primary transition-colors hover:bg-primary hover:text-white"
+            className="whitespace-nowrap rounded-full border border-primary bg-white px-4 py-1.5 text-sm font-semibold text-primary transition-colors duration-150 hover:bg-primary hover:text-white"
           >
             Déconnexion
           </button>
