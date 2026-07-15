@@ -93,7 +93,6 @@ export function Header({ data }: { data: PortalData | null }) {
   ];
   // Onglets support, hors processus. Diff retire de la nav (accessible depuis Ma navette).
   const support = [
-    { href: '/simulation', label: 'Simulation', show: isLeader },
     { href: '/business-case', label: 'Business case', show: true },
     { href: '/reglages', label: 'Réglages', show: role === 'cfo' },
   ].filter((l) => l.show);

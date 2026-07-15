@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { MonthlyChart } from '@/components/monthly-chart';
+import { ScenariosSection } from '@/components/scenarios-section';
 import { NavetteStatusCard } from '@/components/navette-status-card';
 import { CollapsiblePnlTable, type PnlTableRow } from '@/components/pnl-table';
 import { InfoTip } from '@/components/info-tip';
@@ -569,6 +570,7 @@ export default function DashboardPage() {
     ['contribution', 'Départements'],
   ];
   if (channelOrder.length > 0) okNav.push(['cac', 'CAC']);
+  okNav.push(['scenarios', 'Scénarios']);
   const navItems: [string, string][] = result.ok
     ? okNav
     : [['navettes', 'Navettes'], ...(baseline ? ([['kpis', 'Indicateurs'], ['pnl', 'P&L'], ['tresorerie', 'Trésorerie']] as [string, string][]) : [])];
@@ -642,7 +644,7 @@ export default function DashboardPage() {
           ) : (
             <>
               <p className="mt-2 text-sm text-ink/60">
-                {data.submissions.length} navette(s) en circulation. La consolidation ne produit aucun chiffre tant qu&apos;un département n&apos;a pas soumis la sienne.
+                {data.submissions.length} {data.submissions.length > 1 ? 'navettes' : 'navette'} en circulation. La consolidation ne produit aucun chiffre tant qu&apos;un département n&apos;a pas soumis la sienne.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {resetArmed ? (
@@ -675,6 +677,17 @@ export default function DashboardPage() {
               </button>
               <span className="text-xs text-ink/50">
                 Pré-remplit toutes les navettes avec un budget cohérent (CA +40 %, COGS 30 %, coûts au cadrage), les soumet et incrémente la version.
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => document.getElementById('scenarios')?.scrollIntoView({ behavior: 'smooth' })}
+                className={btnSecondary}
+              >
+                Simuler les scénarios as is / rebound
+              </button>
+              <span className="text-xs text-ink/50">
+                Descend jusqu&apos;à la section Scénarios : la projection pluriannuelle « as is » et « rebound » à partir du dernier P&amp;L réalisé.
               </span>
             </div>
           </div>
@@ -936,6 +949,15 @@ export default function DashboardPage() {
               {cadrageMsg && editCell?.kind === 'cap' && <p className="mt-2 text-sm text-red-600">{cadrageMsg}</p>}
             </section>
           )}
+
+          {/* 9. Scénarios pluriannuels : lecture prospective du budget (as is / rebound) */}
+          <section className="mt-8">
+            <SectionTitle id="scenarios">Scénarios pluriannuels</SectionTitle>
+            <p className="mt-1 text-sm text-ink/60">
+              Projection N+1 à N+3 à partir du P&amp;L de l&apos;année N ; hypothèses modifiables.
+            </p>
+            <ScenariosSection pnlYears={actuals?.pnlYears ?? null} budgetYear={data.company.budget_year} />
+          </section>
         </>
       )}
     </Page>
