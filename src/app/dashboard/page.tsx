@@ -21,6 +21,8 @@ interface PnlRow {
   label: string;
   kind: RowKind;
   fn: (m: number) => number;
+  /** Ligne mise en avant (chiffre d'affaires). */
+  highlight?: boolean;
 }
 
 // Carte KPI attenuee : la meme mesure, mais pour la projection SANS navettes. Plus petite,
@@ -396,7 +398,7 @@ export default function DashboardPage() {
   const pnlRows: PnlRow[] = [
     { label: 'MRR fin de mois', kind: 'line', fn: (m) => M[m].mrrEnd },
     { label: 'Revenus non récurrents', kind: 'line', fn: (m) => M[m].otherRevenue },
-    { label: 'Revenu', kind: 'line', fn: (m) => M[m].revenue },
+    { label: 'Chiffre d’affaires', kind: 'line', highlight: true, fn: (m) => M[m].revenue },
     { label: 'COGS', kind: 'line', fn: (m) => -M[m].cogsTotal },
     { label: 'Marge brute', kind: 'solde', fn: (m) => M[m].grossMargin },
     { label: 'Marge brute (%)', kind: 'pct', fn: (m) => (M[m].revenue ? (M[m].revenue - M[m].cogsTotal) / M[m].revenue : NaN) },
@@ -426,6 +428,7 @@ export default function DashboardPage() {
           format: r.kind === 'pct' ? 'pct' : 'amount',
           strong: r.kind === 'solde',
           muted: r.kind === 'pct',
+          highlight: r.highlight,
           months,
           annual,
         };
@@ -462,7 +465,7 @@ export default function DashboardPage() {
     ? [
         { label: 'MRR fin de mois', format: 'amount', months: rangeMonths((i) => bm[i].mrrEnd), annual: bm[11].mrrEnd },
         { label: 'Revenus non récurrents', format: 'amount', months: rangeMonths(() => 0), annual: 0 },
-        { label: 'Revenu', format: 'amount', months: rangeMonths((i) => bm[i].revenue), annual: sum12((i) => bm[i].revenue) },
+        { label: 'Chiffre d’affaires', format: 'amount', highlight: true, months: rangeMonths((i) => bm[i].revenue), annual: sum12((i) => bm[i].revenue) },
         { label: 'COGS', format: 'amount', months: rangeMonths((i) => -bmCogs(i)), annual: -sum12(bmCogs) },
         { label: 'Marge brute', format: 'amount', strong: true, months: rangeMonths((i) => bm[i].grossMargin), annual: sum12((i) => bm[i].grossMargin) },
         { label: 'Marge brute (%)', format: 'pct', muted: true, months: rangeMonths((i) => (bm[i].revenue ? bm[i].grossMargin / bm[i].revenue : NaN)), annual: pctAnnual((i) => bm[i].grossMargin) },

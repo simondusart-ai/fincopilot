@@ -21,6 +21,8 @@ export interface PnlTableRow {
   strong?: boolean;
   /** Sous-ligne grise en italique (ratios). */
   muted?: boolean;
+  /** Ligne mise en avant (teinte menthe, gras) : le chiffre d'affaires. */
+  highlight?: boolean;
   months: (number | null)[];
   annual: number | null;
 }
@@ -80,13 +82,15 @@ export function CollapsiblePnlTable({
             </thead>
             <tbody>
               {rows.map((r) => {
-                const rowClass = r.strong ? 'bg-lav' : 'border-b border-lav/60';
+                const rowClass = r.strong ? 'bg-lav' : r.highlight ? 'bg-mint/15' : 'border-b border-lav/60';
                 const labelClass = r.strong
                   ? 'bg-lav font-semibold'
-                  : r.muted
-                    ? 'bg-white italic text-ink/50'
-                    : 'bg-white';
-                const bodyClass = `${r.strong ? 'font-semibold' : ''} ${r.muted ? 'italic text-ink/50' : ''}`;
+                  : r.highlight
+                    ? 'bg-mint/15 font-semibold'
+                    : r.muted
+                      ? 'bg-white italic text-ink/50'
+                      : 'bg-white';
+                const bodyClass = `${r.strong || r.highlight ? 'font-semibold' : ''} ${r.muted ? 'italic text-ink/50' : ''}`;
                 const a = renderCell(r.annual, r.format);
                 return (
                   <tr key={r.label} className={rowClass}>

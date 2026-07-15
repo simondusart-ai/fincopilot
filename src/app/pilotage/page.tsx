@@ -53,7 +53,7 @@ const METRIC_ROWS: { label: string; solde?: boolean; sub?: boolean; fmt: (r: Act
 
 // P&L annuel a la structure du Budget. 'solde' = fond lavande ; 'pct' = sous-ligne grise.
 const ANNUAL_PNL_ROWS: { label: string; kind: 'line' | 'solde' | 'pct'; get: (p: AnnualPnl) => number; info?: string }[] = [
-  { label: 'Revenus', kind: 'line', get: (p) => p.revenue },
+  { label: 'Chiffre d’affaires', kind: 'line', get: (p) => p.revenue },
   { label: 'COGS', kind: 'line', get: (p) => -p.cogs, info: 'Convention marge brute 70 % pour les années réalisées.' },
   { label: 'Marge brute', kind: 'solde', get: (p) => p.grossMargin },
   { label: 'Marge brute (%)', kind: 'pct', get: (p) => (p.revenue ? p.grossMargin / p.revenue : NaN) },
@@ -287,69 +287,64 @@ export default function PilotagePage() {
         <Loading />
       ) : (
         <>
-          {/* 1. Cartes d'indicateurs du dernier mois saisi */}
-          {lastMonth ? (
-            <>
-              <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-lav px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ink">
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="4.5" width="18" height="16" rx="2" />
-                  <path d="M3 9h18M8 2.5v4M16 2.5v4" />
-                </svg>
-                Dernier mois saisi : {MONTH_LABELS[lastMonth.month - 1]} {selectedYear}
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-3">
-                <KpiCardPilotage
-                  dimension="croissance"
-                  icon="curve"
-                  title="MRR et ajouts nets"
-                  value={fmtKEur(lastMonth.mrrEnd)}
-                  sub={`Ajouts nets : ${lastMonth.netAdds.toLocaleString('fr-FR')}`}
-                  italic={lastMonth.mrrGrowthMoM !== null ? `${signedPct(lastMonth.mrrGrowthMoM)} vs mois précédent` : undefined}
-                />
-                <KpiCardPilotage
-                  dimension="croissance"
-                  icon="loop"
-                  title="NRR"
-                  value={lastMonth.nrr === null ? 'n.a.' : fmtPct(lastMonth.nrr)}
-                  sub={lastMonth.nrrIsProxy ? 'Proxy annualisé' : 'Mesuré'}
-                />
-                <KpiCardPilotage
-                  dimension="rentabilite"
-                  icon="target"
-                  title="CAC moyen"
-                  value={lastMonth.cacAvg === null ? 'n.a.' : fmtEur(lastMonth.cacAvg)}
-                  sub={target !== null ? `Cible ${fmtEur(target)}` : undefined}
-                  bad={lastMonth.cacAvg !== null && target !== null && lastMonth.cacAvg > target}
-                />
-                <KpiCardPilotage
-                  dimension="rentabilite"
-                  icon="gauge"
-                  title="Marge de contribution"
-                  value={lastMonth.contributionMarginPct === null ? 'n.a.' : fmtPct(lastMonth.contributionMarginPct)}
-                  sub="% du CA"
-                  bad={lastMonth.contributionMarginPct !== null && lastMonth.contributionMarginPct < 0}
-                />
-                <KpiCardPilotage
-                  dimension="cash"
-                  icon="flame"
-                  title="Burn du mois"
-                  value={lastMonth.burn === null ? 'n.a.' : fmtKEur(lastMonth.burn)}
-                  sub={lastMonth.cashEnd !== null ? `Trésorerie : ${fmtKEur(lastMonth.cashEnd)}` : undefined}
-                />
-                <KpiCardPilotage
-                  dimension="cash"
-                  icon="pump"
-                  title="Runway"
-                  value={fmtMonths(lastMonth.runwayMonths)}
-                  sub={`Seuils : vigilance ${vigilance} mois, gel ${freeze} mois`}
-                  bad={lastMonth.runwayMonths !== null && lastMonth.runwayMonths < freeze}
-                />
-              </div>
-            </>
-          ) : (
-            <p className="mt-6 rounded-2xl bg-white p-5 text-sm text-ink/60 shadow-sm">
-              Aucune donnée saisie pour {selectedYear}.{isCfo ? ' Utilisez la grille de saisie ci-dessous.' : ''}
-            </p>
+          {/* 1. Cartes d'indicateurs : toujours affichees ; "-" tant que rien n'est saisi. */}
+          <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-lav px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ink">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4.5" width="18" height="16" rx="2" />
+              <path d="M3 9h18M8 2.5v4M16 2.5v4" />
+            </svg>
+            {lastMonth ? `Dernier mois saisi : ${MONTH_LABELS[lastMonth.month - 1]} ${selectedYear}` : `Exercice ${selectedYear} : aucun mois saisi`}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <KpiCardPilotage
+              dimension="croissance"
+              icon="curve"
+              title="MRR"
+              value={lastMonth ? fmtKEur(lastMonth.mrrEnd) : '-'}
+              sub={lastMonth ? `Ajouts nets : ${lastMonth.netAdds.toLocaleString('fr-FR')}${lastMonth.monthlyLogoChurn !== null ? ` après ${fmtPct(lastMonth.monthlyLogoChurn, 1)} de churn sur le mois` : ''}` : undefined}
+              italic={lastMonth && lastMonth.mrrGrowthMoM !== null ? `${signedPct(lastMonth.mrrGrowthMoM)} vs mois précédent` : undefined}
+            />
+            <KpiCardPilotage
+              dimension="croissance"
+              icon="loop"
+              title="NRR"
+              value={lastMonth ? (lastMonth.nrr === null ? 'n.a.' : fmtPct(lastMonth.nrr)) : '-'}
+              sub={lastMonth && lastMonth.nrrIsProxy ? 'Proxy annualisé' : undefined}
+            />
+            <KpiCardPilotage
+              dimension="rentabilite"
+              icon="target"
+              title="CAC moyen"
+              value={lastMonth ? (lastMonth.cacAvg === null ? 'n.a.' : fmtEur(lastMonth.cacAvg)) : '-'}
+              sub={target !== null ? `Cible ${fmtEur(target)}` : undefined}
+              bad={!!lastMonth && lastMonth.cacAvg !== null && target !== null && lastMonth.cacAvg > target}
+            />
+            <KpiCardPilotage
+              dimension="rentabilite"
+              icon="gauge"
+              title="Marge de contribution"
+              value={lastMonth ? (lastMonth.contributionMarginPct === null ? 'n.a.' : fmtPct(lastMonth.contributionMarginPct)) : '-'}
+              sub={lastMonth ? '% du CA' : undefined}
+              bad={!!lastMonth && lastMonth.contributionMarginPct !== null && lastMonth.contributionMarginPct < 0}
+            />
+            <KpiCardPilotage
+              dimension="cash"
+              icon="flame"
+              title="Burn du mois"
+              value={lastMonth ? (lastMonth.burn === null ? 'n.a.' : fmtKEur(lastMonth.burn)) : '-'}
+              sub={lastMonth && lastMonth.cashEnd !== null ? `Trésorerie : ${fmtKEur(lastMonth.cashEnd)}` : undefined}
+            />
+            <KpiCardPilotage
+              dimension="cash"
+              icon="pump"
+              title="Runway"
+              value={lastMonth ? fmtMonths(lastMonth.runwayMonths) : '-'}
+              sub={`Seuils : vigilance ${vigilance} mois, gel ${freeze} mois`}
+              bad={!!lastMonth && lastMonth.runwayMonths !== null && lastMonth.runwayMonths < freeze}
+            />
+          </div>
+          {!lastMonth && isCfo && (
+            <p className="mt-2 text-xs text-ink/50">Aucun mois saisi pour {selectedYear}. Utilisez la grille de saisie ci-dessous.</p>
           )}
 
           {/* Alertes de gestion du dernier mois saisi (titre harmonise avec l'ecran Budget) */}
@@ -361,7 +356,7 @@ export default function PilotagePage() {
               </div>
               <AlertBanners
                 alerts={shownAlerts}
-                emptyMessage="Aucune alerte : le réalisé est dans le cadrage."
+                emptyMessage="Aucune alerte."
                 periodFor={(a) => (a.month ? `${MONTH_LABELS[a.month - 1]} ${selectedYear}` : a.quarter ? `T${a.quarter}` : undefined)}
                 extraTag={alertsFromPreviousMonth ? 'Mois précédent' : undefined}
               />

@@ -36,7 +36,7 @@ export async function exportConsolidation(
     ['dont expansion', (m) => result.months[m].expansionMrr],
     ['dont churn', (m) => -result.months[m].churnedMrr],
     ['Revenus non récurrents', (m) => result.months[m].otherRevenue],
-    ['Revenu', (m) => result.months[m].revenue],
+    ['Chiffre d’affaires', (m) => result.months[m].revenue],
     ['COGS', (m) => -result.months[m].cogsTotal],
     ['Marge brute', (m) => result.months[m].grossMargin],
     ['Coûts S&M', (m) => -result.months[m].smSpend],
@@ -135,7 +135,7 @@ export async function exportConsolidation(
   // Onglet 5 : hypothèses (rappel de la marge de contribution en %)
   const hy = wb.addWorksheet('Synthèse');
   hy.addRow(['Indicateur', 'Valeur']).font = bold;
-  hy.addRow(['Revenu annuel (€)', result.totals.revenue]).getCell(2).numFmt = eur;
+  hy.addRow(['Chiffre d’affaires annuel (€)', result.totals.revenue]).getCell(2).numFmt = eur;
   hy.addRow(['EBITDA annuel (€)', result.totals.ebitda]).getCell(2).numFmt = eur;
   hy.addRow(['Trésorerie fin d’année (€)', result.totals.endCash]).getCell(2).numFmt = eur;
   hy.addRow(['MRR fin d’année (€)', result.totals.mrrEnd]).getCell(2).numFmt = eur;
