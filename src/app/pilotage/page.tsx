@@ -2,9 +2,10 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
+import { InfoTip } from '@/components/info-tip';
 import { getSupabase } from '@/lib/supabase';
-import { buildConsolidationInputs, loadActuals, type ActualsData, type PnlYearRow } from '@/lib/data';
-import { computeActuals, consolidate, type ActualMonthResult, type ActualsResult } from '@/lib/engine';
+import { buildConsolidationInputs, loadActuals, type ActualsData } from '@/lib/data';
+import { budgetAnnualPnl, computeActuals, consolidate, realizedAnnualPnl, type ActualMonthResult, type ActualsResult, type AnnualPnl } from '@/lib/engine';
 import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths, fmtPct } from '@/lib/format';
 
 interface MonthlyForm {
@@ -48,15 +49,18 @@ const METRIC_ROWS: { label: string; solde?: boolean; sub?: boolean; fmt: (r: Act
   { label: 'Runway (mois)', solde: true, fmt: (r) => (r.runwayMonths === null ? '' : r.runwayMonths.toFixed(1)) },
 ];
 
-const PNL_LINES: { label: string; key: keyof PnlYearRow; budget?: 'revenue' | 'ebitda'; solde?: boolean }[] = [
-  { label: 'Revenu', key: 'revenue', budget: 'revenue', solde: true },
-  { label: 'S&M', key: 'sm' },
-  { label: 'Tech & Product', key: 'tech_product' },
-  { label: 'Masse salariale & autres', key: 'payroll_other' },
-  { label: 'G&A', key: 'ga' },
-  { label: 'EBITDA', key: 'ebitda', budget: 'ebitda', solde: true },
-  { label: 'D&A', key: 'da' },
-  { label: 'Résultat net', key: 'net_income', solde: true },
+// P&L annuel a la structure du Budget. 'solde' = fond lavande ; 'pct' = sous-ligne grise.
+const ANNUAL_PNL_ROWS: { label: string; kind: 'line' | 'solde' | 'pct'; get: (p: AnnualPnl) => number; info?: string }[] = [
+  { label: 'Revenus', kind: 'line', get: (p) => p.revenue },
+  { label: 'COGS', kind: 'line', get: (p) => -p.cogs, info: 'Convention marge brute 70 % pour les années réalisées.' },
+  { label: 'Marge brute', kind: 'solde', get: (p) => p.grossMargin },
+  { label: 'Marge brute (%)', kind: 'pct', get: (p) => (p.revenue ? p.grossMargin / p.revenue : NaN) },
+  { label: 'Coûts S&M', kind: 'line', get: (p) => -p.sm },
+  { label: 'Marge de contribution', kind: 'solde', get: (p) => p.contribution },
+  { label: 'Marge de contribution (%)', kind: 'pct', get: (p) => (p.revenue ? p.contribution / p.revenue : NaN) },
+  { label: 'Coûts de structure (salaires et opex)', kind: 'line', get: (p) => -p.structure },
+  { label: 'EBITDA', kind: 'solde', get: (p) => p.ebitda },
+  { label: 'Marge EBITDA (%)', kind: 'pct', get: (p) => (p.revenue ? p.ebitda / p.revenue : NaN) },
 ];
 
 export default function PilotagePage() {
@@ -124,11 +128,14 @@ export default function PilotagePage() {
     return { resByYear };
   }, [data, actuals]);
 
-  // Pont vers le budget : CA et EBITDA totaux issus de la consolidation des navettes.
-  const budget = useMemo(() => {
+  // Pont vers le budget : P&L annuel issu de la consolidation des navettes (memes lignes).
+  const budget = useMemo((): AnnualPnl | null => {
     if (!data) return null;
     const r = consolidate(buildConsolidationInputs(data));
-    return r.ok ? { revenue: r.totals!.revenue, ebitda: r.totals!.ebitda } : null;
+    if (!r.ok) return null;
+    const smAnnual = r.months.reduce((a, m) => a + m.smSpend, 0);
+    const sgnaAnnual = r.months.reduce((a, m) => a + m.payrollTotal + m.opexTotal, 0);
+    return budgetAnnualPnl(r.totals!, smAnnual, sgnaAnnual);
   }, [data]);
 
   // Pre-remplit les grilles de saisie depuis les donnees de l'annee selectionnee.
@@ -181,6 +188,16 @@ export default function PilotagePage() {
   const target = data.company.cac_avg_target != null ? Number(data.company.cac_avg_target) : null;
   const freeze = Number(data.company.runway_freeze_months);
   const vigilance = Number(data.company.runway_vigilance_months);
+
+  // P&L annuel a la structure du Budget. COGS des annees realisees deduits au taux de marge.
+  const cogsRate = 1 - Number(data.company.gross_margin_pct);
+  const realizedByYear = (actuals?.pnlYears ?? []).map((py) => ({
+    year: py.year,
+    pnl: realizedAnnualPnl(
+      { revenue: Number(py.revenue), sm: Number(py.sm), techProduct: Number(py.tech_product), payrollOther: Number(py.payroll_other), ga: Number(py.ga) },
+      cogsRate,
+    ),
+  }));
 
   async function save() {
     if (!data || selectedYear == null) return;
@@ -343,44 +360,53 @@ export default function PilotagePage() {
             </div>
           )}
 
-          {/* 3. Historique P&L annuel + pont budget */}
+          {/* 3. P&L annuel a la structure du Budget (realise + pont budget) */}
           <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <h2 className="px-5 pt-5 font-semibold text-ink">P&amp;L annuel réalisé (k€)</h2>
+            <h2 className="px-5 pt-5 font-semibold text-ink">P&amp;L annuel (k€)</h2>
             <div className="overflow-x-auto">
               <table className="mt-3 w-full text-sm">
                 <thead>
                   <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
                     <th className="px-5 py-3 font-semibold">Ligne</th>
-                    {actuals.pnlYears.map((py) => (<th key={py.year} className="px-5 py-3 text-right font-semibold">{py.year}</th>))}
-                    <th className="px-5 py-3 text-right font-semibold">Budget {data.company.budget_year}</th>
+                    {realizedByYear.map((y) => (<th key={y.year} className="px-5 py-3 text-right font-semibold">{y.year}</th>))}
+                    <th className="px-5 py-3 text-right font-semibold">
+                      <span className="inline-flex items-center gap-1 normal-case">Budget {data.company.budget_year}<InfoTip text="Issu de la consolidation des navettes soumises." /></span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {actuals.pnlYears.length === 0 ? (
+                  {realizedByYear.length === 0 ? (
                     <tr><td className="px-5 py-3 text-ink/50" colSpan={2}>Aucun historique annuel pour cette société.</td></tr>
                   ) : (
-                    PNL_LINES.map((line) => (
-                      <tr key={line.key} className={line.solde ? 'bg-lav' : 'border-b border-lav/60'}>
-                        <td className={`px-5 py-1.5 ${line.solde ? 'font-semibold' : ''}`}>{line.label}</td>
-                        {actuals.pnlYears.map((py) => {
-                          const v = Number(py[line.key]) / 1000;
-                          return (
-                            <td key={py.year} className={`px-5 py-1.5 text-right tabular-nums ${v < 0 ? 'text-red-600' : ''} ${line.solde ? 'font-semibold' : ''}`}>
-                              {Math.round(v).toLocaleString('fr-FR')}
-                            </td>
-                          );
-                        })}
-                        <td className={`px-5 py-1.5 text-right tabular-nums ${line.solde ? 'font-semibold' : ''}`}>
-                          {line.budget && budget ? (() => { const v = budget[line.budget] / 1000; return <span className={v < 0 ? 'text-red-600' : ''}>{Math.round(v).toLocaleString('fr-FR')}</span>; })() : <span className="text-ink/40">-</span>}
-                        </td>
-                      </tr>
-                    ))
+                    ANNUAL_PNL_ROWS.map((row) => {
+                      const solde = row.kind === 'solde';
+                      const pct = row.kind === 'pct';
+                      const cell = (v: number) => (pct ? (Number.isFinite(v) ? fmtPct(v) : 'n.a.') : Math.round(v / 1000).toLocaleString('fr-FR'));
+                      return (
+                        <tr key={row.label} className={solde ? 'bg-lav' : pct ? '' : 'border-b border-lav/60'}>
+                          <td className={`px-5 py-1.5 ${solde ? 'font-semibold' : pct ? 'italic text-ink/50' : ''}`}>
+                            <span className="inline-flex items-center gap-1">{row.label}{row.info && <InfoTip text={row.info} />}</span>
+                          </td>
+                          {realizedByYear.map((y) => {
+                            const v = row.get(y.pnl);
+                            return (
+                              <td key={y.year} className={`px-5 py-1.5 text-right tabular-nums ${!pct && v < 0 ? 'text-red-600' : ''} ${solde ? 'font-semibold' : ''} ${pct ? 'italic text-ink/50' : ''}`}>
+                                {cell(v)}
+                              </td>
+                            );
+                          })}
+                          <td className={`px-5 py-1.5 text-right tabular-nums ${solde ? 'font-semibold' : ''} ${pct ? 'italic text-ink/50' : ''}`}>
+                            {budget ? (() => { const v = row.get(budget); return <span className={!pct && v < 0 ? 'text-red-600' : ''}>{cell(v)}</span>; })() : <span className="text-ink/40">-</span>}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
             <p className="px-5 pb-4 pt-2 text-xs text-ink/50">
-              Colonne budget : CA et EBITDA totaux issus de la consolidation des navettes soumises.
+              Colonne budget : issue de la consolidation des navettes soumises. COGS des années réalisées : convention marge brute 70 %.
             </p>
           </div>
 

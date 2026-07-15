@@ -3,6 +3,8 @@ export { monthlyizeFlow, monthlyizeLevel, monthlyizeByFrequency, quartersFromAmo
 export { validateInputs } from './validate';
 export { consolidate, fmtK, effectiveMonthlyChurn } from './consolidate';
 export { caGeneratedByQuarter } from './ca-generated';
+export { realizedAnnualPnl, budgetAnnualPnl } from './pnl-annual';
+export type { AnnualPnl } from './pnl-annual';
 export { diffSubmissions } from './diff';
 export { projectBaseline, reconductedFixedCosts } from './baseline';
 export type { BaselineParams, BaselineMonth, BaselineResult } from './baseline';
