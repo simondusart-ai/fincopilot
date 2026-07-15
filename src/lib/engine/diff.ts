@@ -37,6 +37,9 @@ function annualImpact(kind: DriverKind, q: QuarterValues | null, unitCost: numbe
       return sum(q);
     case 'channel_customers':
       return sum(q) * config.arpa;
+    case 'churn_rate':
+      // Objectif de churn : pas d'impact monetaire par ligne (l'impact passe par le MRR consolide).
+      return 0;
   }
 }
 

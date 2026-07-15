@@ -53,7 +53,8 @@ export type DriverKind =
   | 'cogs' // coût des ventes du département, en euros par trimestre (flux)
   | 'channel_spend' // dépenses d'acquisition d'un canal, en euros par trimestre (flux)
   | 'channel_customers' // nouveaux clients d'un canal, en nombre par trimestre (flux)
-  | 'capex'; // investissement, en euros par trimestre : hors EBITDA, déduit de la trésorerie
+  | 'capex' // investissement, en euros par trimestre : hors EBITDA, déduit de la trésorerie
+  | 'churn_rate'; // objectif de churn mensuel, NIVEAU trimestriel en % par mois (1,3 = 1,3 %/mois)
 
 /**
  * Fréquence de décaissement d'une ligne, qui pilote sa mensualisation :

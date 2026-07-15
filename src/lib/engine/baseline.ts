@@ -24,8 +24,10 @@
 export interface BaselineParams {
   /** MRR au 1er janvier de l'annee budgetee, en euros. */
   openingMrr: number;
-  /** Churn mensuel applique au MRR d'ouverture de chaque mois (fraction). */
+  /** Churn mensuel applique au MRR d'ouverture de chaque mois (fraction). Repli par defaut. */
   monthlyChurnPct: number;
+  /** Churn mensuel par mois (12 fractions), s'il est fixe en navette. Prioritaire sur le repli. */
+  monthlyChurnRates?: number[];
   /** Taux de marge brute de la configuration (fraction). Porte les couts variables. */
   grossMarginPct: number;
   /** Tresorerie au 1er janvier, en euros. */
@@ -89,7 +91,8 @@ export function projectBaseline(p: BaselineParams): BaselineResult {
   const ebitdaHistory: number[] = [];
 
   for (let m = 0; m < 12; m++) {
-    const churnedMrr = mrrOpen * p.monthlyChurnPct;
+    const churn = p.monthlyChurnRates?.[m] ?? p.monthlyChurnPct;
+    const churnedMrr = mrrOpen * churn;
     // Aucune action : ni nouveau MRR, ni expansion. La topline ne fait que s'eroder.
     const mrrEnd = mrrOpen - churnedMrr;
     const revenue = mrrEnd;

@@ -9,7 +9,7 @@ import { InfoTip } from '@/components/info-tip';
 import { getSupabase } from '@/lib/supabase';
 import { buildConsolidationInputs, loadActuals, toChannel, toCompanyConfig, toDepartment, toDriverDef } from '@/lib/data';
 import type { ActualsData, BudgetMode, SubmissionRow } from '@/lib/data';
-import { consolidate, projectBaseline, simulateRound } from '@/lib/engine';
+import { consolidate, effectiveMonthlyChurn, projectBaseline, simulateRound } from '@/lib/engine';
 import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
 
@@ -159,6 +159,8 @@ export default function DashboardPage() {
       res: projectBaseline({
         openingMrr: Number(data.company.opening_mrr),
         monthlyChurnPct: Number(data.company.monthly_churn_pct),
+        // Si une navette fixe un objectif de churn, la baseline l'utilise aussi (repli config sinon).
+        monthlyChurnRates: effectiveMonthlyChurn(buildConsolidationInputs(data)),
         grossMarginPct: Number(data.company.gross_margin_pct),
         openingCash: Number(data.company.opening_cash),
         prevYearRevenue,

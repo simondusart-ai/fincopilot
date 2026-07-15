@@ -66,6 +66,7 @@ export function validateInputs(inputs: ConsolidationInputs): Alert[] {
   }
 
   // 4. Contenu des lignes
+  let churnRateCount = 0;
   for (const sub of submissions) {
     const dept = deptById.get(sub.departmentId);
     const deptName = dept ? dept.name : sub.departmentId;
@@ -121,7 +122,19 @@ export function validateInputs(inputs: ConsolidationInputs): Alert[] {
           blocking.push(b('LIGNE_COUT_UNITAIRE', `Navette ${deptName}, ligne "${def.label}" : coût mensuel moyen par ETP manquant ou invalide.`, sub.departmentId));
         }
       }
+      if (def.kind === 'churn_rate') {
+        churnRateCount++;
+        // Objectif de churn mensuel : un pourcentage strictement entre 0 et 100.
+        (line.q ?? []).forEach((v, i) => {
+          if (Number.isFinite(v) && (v <= 0 || v >= 100)) {
+            blocking.push(bq('CHURN_RATE_HORS_BORNES', `Navette ${deptName}, ligne "${def.label}", T${i + 1} : churn de ${v} % hors bornes (attendu entre 0 et 100 exclus).`, sub.departmentId, i + 1));
+          }
+        });
+      }
     }
+  }
+  if (churnRateCount > 1) {
+    blocking.push(b('CHURN_RATE_DOUBLON', `Plusieurs lignes d'objectif de churn dans la société (${churnRateCount}) : une seule est admise.`));
   }
 
   return blocking;

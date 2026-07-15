@@ -29,6 +29,7 @@ const KIND_TYPE: Record<string, string> = {
   cogs: 'COGS',
   capex: 'Capex',
   channel_customers: 'Volume',
+  churn_rate: 'Objectif',
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -42,6 +43,7 @@ const KIND_LABEL: Record<string, string> = {
   channel_spend: 'Dépenses du canal (€ / trimestre)',
   channel_customers: 'Nouveaux leads du canal (nb / trimestre)',
   capex: 'Investissement (€ / trimestre)',
+  churn_rate: 'Objectif de churn mensuel (% / mois)',
 };
 
 /**
@@ -65,7 +67,7 @@ interface SectionDef {
 // elles vivent dans la section Opex, pas dans Acquisition (qui ne porte que les volumes).
 const SECTIONS: SectionDef[] = [
   { id: 'acquisition', title: 'Acquisition par canal', kinds: ['channel_customers'], isCost: false },
-  { id: 'topline', title: 'Topline', kinds: ['new_mrr', 'expansion_mrr', 'revenue_other'], isCost: false },
+  { id: 'topline', title: 'Topline', kinds: ['new_mrr', 'expansion_mrr', 'revenue_other', 'churn_rate'], isCost: false },
   { id: 'cogs', title: 'COGS', kinds: ['cogs'], isCost: true },
   { id: 'payroll', title: 'Masse salariale', kinds: ['payroll', 'headcount'], isCost: true, addKind: 'payroll', addLabel: 'Ajouter un poste' },
   { id: 'opex', title: 'Opex et investissements', kinds: ['opex', 'capex', 'channel_spend'], isCost: true, addKind: 'opex', addLabel: 'Ajouter une dépense', hasVendor: true },
@@ -220,6 +222,8 @@ export default function NavettePage() {
     if (!line) return 0;
     const v = num(line.q[i]);
     if (def.kind === 'headcount') return v * 3 * num(line.unitCost);
+    // churn_rate : un objectif en %, jamais un montant. Il ne compte dans aucun sous-total.
+    if (def.kind === 'churn_rate') return 0;
     // channel_customers : volume de leads. Sa section est hors total des couts (isCost false),
     // donc renvoyer le volume n'alimente que le sous-total de leads, jamais un cout.
     return v;
@@ -813,14 +817,17 @@ export default function NavettePage() {
                             </td>
                             {[0, 1, 2, 3].map((i) => (
                               <td key={i} className="px-3 py-2.5 text-right">
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  disabled={!canEditLines}
-                                  value={edit[def.id]?.q[i] ?? '0'}
-                                  onChange={(e) => updateDriverQ(def.id, i, e.target.value)}
-                                  className={`w-24 text-right ${inputBase}`}
-                                />
+                                <span className="inline-flex items-center justify-end gap-1">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    disabled={!canEditLines}
+                                    value={edit[def.id]?.q[i] ?? '0'}
+                                    onChange={(e) => updateDriverQ(def.id, i, e.target.value)}
+                                    className={`${def.kind === 'churn_rate' ? 'w-16' : 'w-24'} text-right ${inputBase}`}
+                                  />
+                                  {def.kind === 'churn_rate' && <span className="text-xs text-ink/40">%</span>}
+                                </span>
                               </td>
                             ))}
                             {hasHeadcount && (

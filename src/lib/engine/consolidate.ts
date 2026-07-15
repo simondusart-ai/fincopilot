@@ -17,6 +17,25 @@ export function fmtK(eur: number): string {
 }
 
 /**
+ * Taux de churn mensuel effectif, 12 valeurs (fractions). Si une navette de la société
+ * déclare une ligne churn_rate (niveau trimestriel en % par mois), elle fait foi : elle est
+ * mensualisée par niveau puis convertie en fraction (1,3 => 0,013). Sinon, repli sur le taux
+ * de la configuration (inchangé). Contrôle amont : une seule ligne churn_rate par société.
+ */
+export function effectiveMonthlyChurn(inputs: ConsolidationInputs): number[] {
+  const defById = new Map(inputs.driverDefs.map((d) => [d.id, d]));
+  for (const sub of inputs.submissions) {
+    for (const line of sub.lines) {
+      if (isInlineLine(line)) continue;
+      if (defById.get(line.driverDefId)?.kind === 'churn_rate') {
+        return monthlyizeLevel(line.q).map((v) => v / 100);
+      }
+    }
+  }
+  return new Array<number>(12).fill(inputs.config.monthlyChurnPct);
+}
+
+/**
  * Consolide les navettes soumises en P&L mensuel de l'année budgétée.
  *
  * Conventions documentées (voir docs/DOCUMENTATION.md, section Conventions de calcul) :
@@ -213,6 +232,8 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
 
   // Roll-forward MRR et P&L mensuel
   const smDeptIds = new Set(departments.filter((d) => d.isSalesMarketing).map((d) => d.id));
+  // Churn mensuel effectif : ligne churn_rate d'une navette si elle existe, sinon config.
+  const monthlyChurn = effectiveMonthlyChurn(inputs);
   const months: MonthRow[] = [];
   let mrrOpen = config.openingMrr;
   let cash = config.openingCash;
@@ -220,7 +241,7 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
   const cashFlowHistory: number[] = [];
 
   for (let m = 0; m < 12; m++) {
-    const churnedMrr = mrrOpen * config.monthlyChurnPct;
+    const churnedMrr = mrrOpen * monthlyChurn[m];
     const mrrEnd = mrrOpen + newMrr[m] + expansionMrr[m] - churnedMrr;
     const revenue = mrrEnd + otherRevenue[m];
     const grossMargin = hasCogs ? revenue - cogs[m] : revenue * config.grossMarginPct;

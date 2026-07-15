@@ -180,8 +180,9 @@ export const FINCOPILOT: SeedCompany = {
     // Ops / CS
     { id: 'fc-ops-cogs', departmentId: 'fc-ops', code: 'COGS_PROD', label: 'Traitement des déclarations (COGS)', kind: 'cogs', monthlyKey: 'saison_fiscale', sort: 1 },
     { id: 'fc-ops-exp', departmentId: 'fc-ops', code: 'EXPANSION', label: 'Cross-sell & upsell base installée', kind: 'expansion_mrr', sort: 2 },
-    { id: 'fc-ops-pay', departmentId: 'fc-ops', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 3 },
-    { id: 'fc-ops-opex', departmentId: 'fc-ops', code: 'OPEX', label: 'Outils support', kind: 'opex', sort: 4 },
+    { id: 'fc-ops-churn', departmentId: 'fc-ops', code: 'CHURN', label: 'Objectif de churn mensuel', kind: 'churn_rate', sort: 3 },
+    { id: 'fc-ops-pay', departmentId: 'fc-ops', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 4 },
+    { id: 'fc-ops-opex', departmentId: 'fc-ops', code: 'OPEX', label: 'Outils support', kind: 'opex', sort: 5 },
     // FA&P
     { id: 'fc-fap-pay', departmentId: 'fc-fap', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 1 },
     { id: 'fc-fap-opex', departmentId: 'fc-fap', code: 'OPEX', label: 'Frais généraux, assurances, conseils', kind: 'opex', sort: 2 },
@@ -266,6 +267,8 @@ export const FINCOPILOT: SeedCompany = {
       lines: [
         { driverDefId: 'fc-ops-cogs', q: q(520, 650, 580, 550) },
         { driverDefId: 'fc-ops-exp', q: q(36, 48, 57, 66) },
+        // Objectif de churn a 1,3 %/mois, identique au taux de config : la consolidation ne bouge pas.
+        { driverDefId: 'fc-ops-churn', q: qn(1.3, 1.3, 1.3, 1.3) },
         { driverDefId: 'fc-ops-pay', q: q(200, 200, 200, 200) },
         { driverDefId: 'fc-ops-opex', q: q(25, 25, 25, 25) },
       ],
