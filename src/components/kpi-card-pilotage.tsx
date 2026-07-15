@@ -7,7 +7,7 @@
  */
 
 export type KpiDimension = 'croissance' | 'rentabilite' | 'cash';
-export type KpiIcon = 'curve' | 'loop' | 'target' | 'gauge' | 'drop' | 'hourglass';
+export type KpiIcon = 'curve' | 'loop' | 'target' | 'gauge' | 'flame' | 'pump';
 
 /** Traits de chaque picto (viewBox 24, stroke = couleur primaire heritee). */
 const ICON_PATHS: Record<KpiIcon, React.ReactNode> = {
@@ -40,15 +40,20 @@ const ICON_PATHS: Record<KpiIcon, React.ReactNode> = {
       <path d="M12 15 L16.5 10.5" />
     </>
   ),
-  // Goutte (burn du mois).
-  drop: <path d="M12 3.5c0 0 -6 6.5 -6 10.5a6 6 0 0 0 12 0c0 -4 -6 -10.5 -6 -10.5Z" />,
-  // Sablier (runway).
-  hourglass: (
+  // Flamme (burn du mois).
+  flame: (
     <>
-      <path d="M6 3 h12" />
-      <path d="M6 21 h12" />
-      <path d="M7 3 v3 l5 5 l5 -5 v-3" />
-      <path d="M7 21 v-3 l5 -5 l5 5 v3" />
+      <path d="M12 21a6 6 0 0 1-6-6c0-3 2-5 3.5-7.5C10 5 9.5 4 12 2c0 3 1 4 2.5 6C16 10 18 12 18 15a6 6 0 0 1-6 6Z" />
+      <path d="M12 21a3 3 0 0 1-3-3c0-1.6 1.2-2.6 2-4 .8 1.4 2 2.2 2 4a3 3 0 0 1-1 3Z" />
+    </>
+  ),
+  // Pompe a essence (runway).
+  pump: (
+    <>
+      <path d="M5 21V5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v16" />
+      <path d="M3.5 21h11" />
+      <rect x="6.5" y="6" width="4" height="3.5" rx="0.5" />
+      <path d="M12 11h2.5a1.5 1.5 0 0 1 1.5 1.5V17a1.75 1.75 0 0 0 3.5 0V9.5L17 7" />
     </>
   ),
 };

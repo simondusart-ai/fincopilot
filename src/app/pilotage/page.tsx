@@ -92,12 +92,16 @@ export default function PilotagePage() {
   const compute = useMemo(() => {
     if (!data || !actuals) return null;
     const minYear = data.company.budget_year - 1;
+    // Cible de CAC moyen = MOYENNE des plafonds par canal fixes dans le Budget (par le CFO/CEO),
+    // et non une valeur codee en dur. Elle appartient a l'exercice budgetaire : on ne l'applique
+    // donc qu'a l'annee budgetee, jamais aux annees realisees anterieures (voir plus bas).
+    const caps = data.channels.map((c) => c.cac_cap).filter((v): v is number => v != null).map(Number);
+    const cacTargetBudget = caps.length > 0 ? caps.reduce((a, b) => a + b, 0) / caps.length : null;
     const baseParams = {
       arpa: Number(data.company.arpa),
       grossMarginPct: Number(data.company.gross_margin_pct),
       runwayVigilanceMonths: Number(data.company.runway_vigilance_months),
       runwayFreezeMonths: Number(data.company.runway_freeze_months),
-      cacAvgTarget: data.company.cac_avg_target != null ? Number(data.company.cac_avg_target) : null,
       channels: data.channels.map((c) => ({ id: c.id, name: c.name, cacCap: c.cac_cap != null ? Number(c.cac_cap) : null })),
     };
     const monthsOf = (y: number) =>
@@ -119,15 +123,17 @@ export default function PilotagePage() {
         .map((r) => ({ channelId: r.channel_id, month: Number(r.month), spend: Number(r.spend), newCustomers: Number(r.new_customers) }));
 
     const prevMonths = monthsOf(minYear);
-    const resPrev = computeActuals({ ...baseParams, openingClients: Number(data.company.opening_clients) }, prevMonths, chOf(minYear));
+    // Annee realisee anterieure : aucune cible de CAC (la cible est fixee sur l'exercice budgete).
+    const resPrev = computeActuals({ ...baseParams, cacAvgTarget: null, openingClients: Number(data.company.opening_clients) }, prevMonths, chOf(minYear));
+    // Annee budgetee : la cible = moyenne des plafonds par canal.
     const resBudget = computeActuals(
-      { ...baseParams, openingClients: resPrev.endBaseClients ?? Number(data.company.opening_clients) },
+      { ...baseParams, cacAvgTarget: cacTargetBudget, openingClients: resPrev.endBaseClients ?? Number(data.company.opening_clients) },
       monthsOf(minYear + 1),
       chOf(minYear + 1),
       prevMonths,
     );
     const resByYear: Record<number, ActualsResult> = { [minYear]: resPrev, [minYear + 1]: resBudget };
-    return { resByYear };
+    return { resByYear, cacTargetBudget };
   }, [data, actuals]);
 
   // Pont vers le budget : P&L annuel issu de la consolidation des navettes (memes lignes).
@@ -187,7 +193,8 @@ export default function PilotagePage() {
   const shownAlerts = alertsLast.length > 0 ? alertsLast : alertsPrev;
   const alertsFromPreviousMonth = alertsLast.length === 0 && alertsPrev.length > 0;
 
-  const target = data.company.cac_avg_target != null ? Number(data.company.cac_avg_target) : null;
+  // Cible de CAC affichee : uniquement sur l'exercice budgete (moyenne des plafonds par canal).
+  const target = selectedYear === data.company.budget_year ? (compute?.cacTargetBudget ?? null) : null;
   const freeze = Number(data.company.runway_freeze_months);
   const vigilance = Number(data.company.runway_vigilance_months);
 
@@ -324,14 +331,14 @@ export default function PilotagePage() {
                 />
                 <KpiCardPilotage
                   dimension="cash"
-                  icon="drop"
+                  icon="flame"
                   title="Burn du mois"
                   value={lastMonth.burn === null ? 'n.a.' : fmtKEur(lastMonth.burn)}
                   sub={lastMonth.cashEnd !== null ? `Trésorerie : ${fmtKEur(lastMonth.cashEnd)}` : undefined}
                 />
                 <KpiCardPilotage
                   dimension="cash"
-                  icon="hourglass"
+                  icon="pump"
                   title="Runway"
                   value={fmtMonths(lastMonth.runwayMonths)}
                   sub={`Seuils : vigilance ${vigilance} mois, gel ${freeze} mois`}
