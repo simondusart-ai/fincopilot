@@ -29,17 +29,22 @@ const MONTHLY_FIELDS: { key: keyof MonthlyForm; label: string }[] = [
   { key: 'nrrMeasured', label: 'NRR mesuré' },
 ];
 
-const METRIC_ROWS: { label: string; solde?: boolean; fmt: (r: ActualMonthResult) => string }[] = [
-  { label: 'MRR fin de mois (k€)', solde: true, fmt: (r) => Math.round(r.mrrEnd / 1000).toLocaleString('fr-FR') },
+const kK = (v: number) => Math.round(v / 1000).toLocaleString('fr-FR');
+const signedPct = (v: number) => `${v >= 0 ? '+' : ''}${fmtPct(v, 1)}`;
+
+// Ordre coherent avec les tuiles. Les lignes 'sub' sont des sous-lignes italiques grises.
+const METRIC_ROWS: { label: string; solde?: boolean; sub?: boolean; fmt: (r: ActualMonthResult) => string }[] = [
+  { label: 'MRR fin de mois (k€)', solde: true, fmt: (r) => kK(r.mrrEnd) },
+  { label: 'croissance m/m', sub: true, fmt: (r) => (r.mrrGrowthMoM === null ? '' : signedPct(r.mrrGrowthMoM)) },
+  { label: 'Nouveaux clients', fmt: (r) => r.newClients.toLocaleString('fr-FR') },
+  { label: 'Clients churnés', fmt: (r) => r.churnedClients.toLocaleString('fr-FR') },
+  { label: 'churn logo (%)', sub: true, fmt: (r) => (r.monthlyLogoChurn === null ? '' : fmtPct(r.monthlyLogoChurn, 1)) },
   { label: 'Ajouts nets', fmt: (r) => r.netAdds.toLocaleString('fr-FR') },
-  { label: 'Churn logo (%)', fmt: (r) => (r.monthlyLogoChurn === null ? '' : fmtPct(r.monthlyLogoChurn, 1)) },
   { label: 'ARPA implicite (€)', fmt: (r) => (r.arpaImplicit === null ? '' : fmtEur(r.arpaImplicit)) },
-  { label: 'Croissance MRR (MoM)', fmt: (r) => (r.mrrGrowthMoM === null ? '' : fmtPct(r.mrrGrowthMoM, 1)) },
-  { label: 'Croissance MRR (vs n-1)', fmt: (r) => (r.mrrGrowthYoY === null ? '' : fmtPct(r.mrrGrowthYoY, 1)) },
   { label: 'NRR', fmt: (r) => (r.nrr === null ? '' : fmtPct(r.nrr)) },
   { label: 'CAC moyen (€)', fmt: (r) => (r.cacAvg === null ? '' : fmtEur(r.cacAvg)) },
   { label: 'Marge de contribution (%)', fmt: (r) => (r.contributionMarginPct === null ? '' : fmtPct(r.contributionMarginPct)) },
-  { label: 'Burn (k€)', fmt: (r) => (r.burn === null ? '' : Math.round(r.burn / 1000).toLocaleString('fr-FR')) },
+  { label: 'Burn (k€)', fmt: (r) => (r.burn === null ? '' : kK(r.burn)) },
   { label: 'Runway (mois)', solde: true, fmt: (r) => (r.runwayMonths === null ? '' : r.runwayMonths.toFixed(1)) },
 ];
 
@@ -262,9 +267,19 @@ export default function PilotagePage() {
               <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-ink/50">
                 Dernier mois saisi : {MONTH_LABELS[lastMonth.month - 1]} {selectedYear}
               </p>
-              <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <Card title="MRR fin de mois" value={fmtKEur(lastMonth.mrrEnd)} hint={`Ajouts nets : ${lastMonth.netAdds.toLocaleString('fr-FR')}`} dot={lastMonth.netAdds >= 0} />
-                <Card title="Croissance MRR (MoM)" value={lastMonth.mrrGrowthMoM === null ? 'n.a.' : fmtPct(lastMonth.mrrGrowthMoM, 1)} hint={lastMonth.mrrGrowthYoY === null ? undefined : `vs n-1 : ${fmtPct(lastMonth.mrrGrowthYoY, 1)}`} />
+              <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-3">
+                {/* MRR et ajouts nets, avec la croissance m/m en petit italique gris dans la tuile */}
+                <div className="rounded-2xl bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">MRR et ajouts nets</p>
+                  <p className="mt-2 text-3xl font-semibold tabular-nums text-ink">
+                    {fmtKEur(lastMonth.mrrEnd)}
+                    {lastMonth.netAdds >= 0 && <span className="ml-2 inline-block h-2.5 w-2.5 rounded-full bg-mint align-middle" />}
+                  </p>
+                  <p className="mt-2 text-xs text-ink/50">Ajouts nets : {lastMonth.netAdds.toLocaleString('fr-FR')}</p>
+                  {lastMonth.mrrGrowthMoM !== null && (
+                    <p className="text-xs italic text-ink/40">{signedPct(lastMonth.mrrGrowthMoM)} vs mois précédent</p>
+                  )}
+                </div>
                 <Card title="NRR" value={lastMonth.nrr === null ? 'n.a.' : fmtPct(lastMonth.nrr)} hint={lastMonth.nrrIsProxy ? 'Proxy annualisé' : 'Mesuré'} />
                 <Card title="CAC moyen" value={lastMonth.cacAvg === null ? 'n.a.' : fmtEur(lastMonth.cacAvg)} hint={target !== null ? `Cible ${fmtEur(target)}` : undefined} tone={lastMonth.cacAvg !== null && target !== null && lastMonth.cacAvg > target ? 'bad' : 'default'} />
                 <Card title="Marge de contribution" value={lastMonth.contributionMarginPct === null ? 'n.a.' : fmtPct(lastMonth.contributionMarginPct)} tone={lastMonth.contributionMarginPct !== null && lastMonth.contributionMarginPct < 0 ? 'bad' : 'default'} />
@@ -309,13 +324,13 @@ export default function PilotagePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {METRIC_ROWS.map(({ label, solde, fmt }) => (
-                      <tr key={label} className={solde ? 'bg-lav' : 'border-b border-lav/60'}>
-                        <td className={`sticky left-0 z-10 px-5 py-1.5 ${solde ? 'bg-lav font-semibold' : 'bg-white'}`}>{label}</td>
+                    {METRIC_ROWS.map(({ label, solde, sub, fmt }) => (
+                      <tr key={label} className={solde ? 'bg-lav' : sub ? '' : 'border-b border-lav/60'}>
+                        <td className={`sticky left-0 z-10 px-5 py-1.5 ${solde ? 'bg-lav font-semibold' : sub ? 'bg-white italic text-ink/50' : 'bg-white'}`}>{label}</td>
                         {MONTH_LABELS.map((_, i) => {
                           const r = byMonth.get(i + 1);
                           return (
-                            <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${solde ? 'font-semibold' : ''}`}>
+                            <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${solde ? 'font-semibold' : ''} ${sub ? 'italic text-ink/50' : ''}`}>
                               {r ? fmt(r) : noMonthsSaved ? <span className="text-ink/40">À venir</span> : ''}
                             </td>
                           );

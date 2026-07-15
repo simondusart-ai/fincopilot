@@ -196,8 +196,13 @@ export interface MonthRow {
   ebitda: number;
   /** Trésorerie de fin de mois : cumul de (EBITDA - capex). */
   cash: number;
-  /** Runway en mois (trésorerie / flux de trésorerie moyen des 3 derniers mois). null si pas de burn. */
+  /** Runway NET en mois (trésorerie / flux de trésorerie moyen des 3 derniers mois). null si pas de burn. */
   runwayMonths: number | null;
+  /**
+   * Runway BRUT en mois : trésorerie de fin de mois / décaissements totaux du mois (tous les
+   * coûts cash, aucun encaissement). Stress test toujours fini. null si aucun décaissement.
+   */
+  grossRunwayMonths: number | null;
   /** NRR annualisé du mois : ((MRR ouvert + expansion - churn) / MRR ouvert) ^ 12. */
   nrrAnnualized: number | null;
 }

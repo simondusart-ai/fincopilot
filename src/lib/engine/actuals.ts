@@ -61,6 +61,8 @@ export interface ActualMonthResult {
   month: number;
   baseOpen: number;
   baseEnd: number;
+  newClients: number;
+  churnedClients: number;
   netAdds: number;
   /** Churn logo mensuel = churnes / base d'ouverture. null si base nulle. */
   monthlyLogoChurn: number | null;
@@ -166,6 +168,8 @@ export function computeActuals(
       month: m.month,
       baseOpen,
       baseEnd,
+      newClients: m.newClients,
+      churnedClients: m.churnedClients,
       netAdds,
       monthlyLogoChurn,
       arpaImplicit,

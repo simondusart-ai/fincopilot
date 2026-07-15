@@ -10,11 +10,13 @@
  * annuel (l'enveloppe de cadrage est annuelle, sans ventilation trimestrielle).
  */
 
+import { InfoTip } from '@/components/info-tip';
+
 /** Une ligne du recap = une section presente dans le departement, avec ses 4 trimestres (euros). */
 export interface PnlRecapRow {
   id: string;
   title: string;
-  /** true si la section compte dans le total des couts ; false pour la Topline. */
+  /** true si la section compte dans le total des couts ; false pour le +MRR ajoute. */
   isCost: boolean;
   quarters: number[];
 }
@@ -26,11 +28,17 @@ export function NavettePnlRecap({
   budgetYear,
   rows,
   envelope,
+  caGenerated,
+  caGeneratedInfo,
 }: {
   budgetYear: number;
   rows: PnlRecapRow[];
   envelope: number | null;
+  /** CA genere sur l'annee par les ajouts de MRR + one-shot (ligne calculee). */
+  caGenerated?: number;
+  caGeneratedInfo?: string;
 }) {
+  const nonCostRows = rows.filter((r) => !r.isCost);
   const costRows = rows.filter((r) => r.isCost);
   const totalCostQuarters = [0, 1, 2, 3].map((i) => sum(costRows.map((r) => r.quarters[i] ?? 0)));
   const totalCostAnnual = sum(totalCostQuarters);
@@ -55,8 +63,9 @@ export function NavettePnlRecap({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className={`border-b border-lav/60 ${r.isCost ? '' : 'bg-mint/10'}`}>
+            {/* Ajouts de MRR du departement (hors total des couts) */}
+            {nonCostRows.map((r) => (
+              <tr key={r.id} className="border-b border-lav/60 bg-mint/10">
                 <td className="px-5 py-2">{r.title}</td>
                 {[0, 1, 2, 3].map((i) => (
                   <td key={i} className="px-3 py-2 text-right tabular-nums">{k(r.quarters[i] ?? 0)}</td>
@@ -65,7 +74,35 @@ export function NavettePnlRecap({
               </tr>
             ))}
 
-            {/* Solde : total des couts du departement (Topline exclue) */}
+            {/* CA genere sur l'annee : ligne calculee (billing des ajouts + one-shot), annuel seulement */}
+            {caGenerated != null && (
+              <tr className="border-b border-lav/60 bg-mint/10">
+                <td className="px-5 py-2">
+                  <span className="inline-flex items-center gap-1">
+                    CA généré sur l&apos;année
+                    {caGeneratedInfo && <InfoTip text={caGeneratedInfo} />}
+                  </span>
+                </td>
+                <td className="px-3 py-2" />
+                <td className="px-3 py-2" />
+                <td className="px-3 py-2" />
+                <td className="px-3 py-2" />
+                <td className="px-5 py-2 text-right font-semibold tabular-nums">{k(caGenerated)}</td>
+              </tr>
+            )}
+
+            {/* Lignes de cout */}
+            {costRows.map((r) => (
+              <tr key={r.id} className="border-b border-lav/60">
+                <td className="px-5 py-2">{r.title}</td>
+                {[0, 1, 2, 3].map((i) => (
+                  <td key={i} className="px-3 py-2 text-right tabular-nums">{k(r.quarters[i] ?? 0)}</td>
+                ))}
+                <td className="px-5 py-2 text-right font-semibold tabular-nums">{k(sum(r.quarters))}</td>
+              </tr>
+            ))}
+
+            {/* Solde : total des couts du departement (ajouts de MRR exclus) */}
             <tr className="bg-lav">
               <td className="px-5 py-2 font-semibold">Total coûts du département</td>
               {totalCostQuarters.map((v, i) => (

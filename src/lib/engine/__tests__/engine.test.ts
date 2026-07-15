@@ -296,6 +296,35 @@ describe('nouveaux kinds : payroll, cogs, revenue_other', () => {
   });
 });
 
+describe('convention de revenu (verrou I1)', () => {
+  it('revenu du mois = MRR de fin de mois + revenus non recurrents, chaque mois', () => {
+    const res = consolidate(fixture());
+    for (const m of res.months) {
+      expect(m.revenue).toBeCloseTo(m.mrrEnd + m.otherRevenue, 6);
+    }
+  });
+});
+
+describe('runway brut (I3)', () => {
+  it('runway brut = tresorerie de fin de mois / decaissements du mois (tous les couts cash)', () => {
+    const res = consolidate(fixture());
+    // Mois 1 : decaissements = 20 000 (SEA) + 40 000 (5 ETP x 8 000) + 5 000 (opex) = 65 000.
+    expect(res.months[0].totalDeptCosts).toBeCloseTo(65_000, 6);
+    expect(res.months[0].grossRunwayMonths).toBeCloseTo(res.months[0].cash / 65_000, 6);
+    expect(res.months[0].grossRunwayMonths!).toBeCloseTo(15.465, 2);
+  });
+
+  it('est toujours fini quand il y a des decaissements, et plus strict que le runway net', () => {
+    const res = consolidate(fixture());
+    for (const m of res.months) {
+      expect(m.grossRunwayMonths).not.toBeNull();
+      expect(m.grossRunwayMonths!).toBeGreaterThan(0);
+      // Stress test a zero encaissement : le runway brut est toujours <= au runway net (quand defini).
+      if (m.runwayMonths !== null) expect(m.grossRunwayMonths!).toBeLessThanOrEqual(m.runwayMonths);
+    }
+  });
+});
+
 describe('diff entre versions de navette', () => {
   it('détecte les lignes modifiées et chiffre leur impact annuel', () => {
     const inputs = fixture();

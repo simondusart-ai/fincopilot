@@ -6,7 +6,7 @@ import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBa
 import { getSupabase } from '@/lib/supabase';
 import { SubmissionStatusBadge } from '@/components/navette-status-card';
 import { NavettePnlRecap, type PnlRecapRow } from '@/components/navette-pnl-recap';
-import { businessCaseLines, computeBusinessCase, quartersFromAmount } from '@/lib/engine';
+import { businessCaseLines, computeBusinessCase, monthlyizeByFrequency, monthlyizeFlow, quartersFromAmount } from '@/lib/engine';
 import type { DriverKind, LineFrequency } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
 import type { DriverDefRow, SubmissionRow } from '@/lib/data';
@@ -32,8 +32,8 @@ const KIND_TYPE: Record<string, string> = {
 };
 
 const KIND_LABEL: Record<string, string> = {
-  new_mrr: 'Nouveau MRR (€ / trimestre)',
-  expansion_mrr: 'MRR d’expansion (€ / trimestre)',
+  new_mrr: 'Nouveau +MRR (€ / trimestre)',
+  expansion_mrr: '+MRR d’expansion (€ / trimestre)',
   revenue_other: 'Revenus non récurrents (€ / trimestre)',
   headcount: 'Effectifs (ETP, niveau du trimestre)',
   payroll: 'Masse salariale (€ / trimestre)',
@@ -259,12 +259,43 @@ export default function NavettePage() {
     return drivers.length + cs.length + bcs.length > 0 || s.addKind !== undefined;
   });
 
-  // Recap P&L : TOUJOURS les memes quatre lignes, dans le meme ordre, presentes ou non sur
-  // cette navette (Topline, COGS, Masse salariale, Opex et investissements). L'acquisition
-  // par canal n'y figure pas : ses depenses sont comptees dans l'Opex. On reutilise
-  // sectionQuarters (aucun recalcul parallele) : les montants collent a l'euro pres.
+  // Somme trimestrielle pour des kinds precis (memes valeurs que les sections : aucun recalcul).
+  const kindQuarters = (kinds: DriverKind[]): number[] => {
+    const out = [0, 0, 0, 0];
+    for (const def of defs.filter((d) => kinds.includes(d.kind))) for (let i = 0; i < 4; i++) out[i] += driverQuarterValue(def, i);
+    for (const c of customs.filter((c) => kinds.includes(c.kind))) { const q = customQuarters(c); for (let i = 0; i < 4; i++) out[i] += q[i]; }
+    for (const l of bcLines.filter((l) => kinds.includes(l.kind))) for (let i = 0; i < 4; i++) out[i] += l.q[i];
+    return out;
+  };
+
+  // CA genere sur l'annee : chaque euro de +MRR ajoute au mois m facture (13 - m) mois dans
+  // l'annee ; on ajoute les revenus non recurrents (one-shot). Mensualisation identique au moteur.
+  const seasonalKeys = data.company.seasonal_keys ?? {};
+  const mrrAddedMonthly = (): number[] => {
+    const monthly = new Array<number>(12).fill(0);
+    for (const def of defs.filter((d) => d.kind === 'new_mrr' || d.kind === 'expansion_mrr')) {
+      const line = edit[def.id];
+      if (!line) continue;
+      const q = line.q.map(num) as [number, number, number, number];
+      const flow = monthlyizeFlow(q, def.monthly_key ? seasonalKeys[def.monthly_key] : undefined);
+      for (let i = 0; i < 12; i++) monthly[i] += flow[i];
+    }
+    for (const c of customs.filter((c) => c.kind === 'new_mrr' || c.kind === 'expansion_mrr')) {
+      const flow = monthlyizeByFrequency(customQuarters(c) as [number, number, number, number], c.frequency);
+      for (let i = 0; i < 12; i++) monthly[i] += flow[i];
+    }
+    return monthly;
+  };
+  const oneShotAnnual = kindQuarters(['revenue_other']).reduce((a, b) => a + b, 0);
+  const caGenerated = mrrAddedMonthly().reduce((acc, v, i) => acc + v * (12 - i), 0) + oneShotAnnual;
+  const caGeneratedInfo =
+    'CA facturé par les ajouts de MRR du département sur l’année, avant churn (le churn s’applique à la base totale, au niveau société) ; le CA consolidé de l’onglet Budget fait foi.';
+
+  // Recap P&L : quatre lignes fixes. La Topline devient "+MRR ajouté" (new_mrr + expansion) ;
+  // les revenus non recurrents ne sont plus une ligne, ils comptent dans le CA genere.
   const RECAP_SECTION_IDS: SectionId[] = ['topline', 'cogs', 'payroll', 'opex'];
   const recapRows: PnlRecapRow[] = RECAP_SECTION_IDS.map((id) => {
+    if (id === 'topline') return { id, title: '+MRR ajouté', isCost: false, quarters: kindQuarters(['new_mrr', 'expansion_mrr']) };
     const s = SECTIONS.find((x) => x.id === id)!;
     return { id: s.id, title: s.title, isCost: s.isCost, quarters: sectionQuarters(s) };
   });
@@ -629,6 +660,8 @@ export default function NavettePage() {
             budgetYear={data.company.budget_year}
             rows={recapRows}
             envelope={dept.envelope != null ? Number(dept.envelope) : null}
+            caGenerated={caGenerated}
+            caGeneratedInfo={caGeneratedInfo}
           />
 
           {/* Suivi de la navette */}

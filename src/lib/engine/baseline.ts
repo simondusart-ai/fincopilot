@@ -48,6 +48,8 @@ export interface BaselineMonth {
   ebitda: number;
   cash: number;
   runwayMonths: number | null;
+  /** Runway BRUT : tresorerie de fin de mois / decaissements du mois (COGS implicite + socle fixe). */
+  grossRunwayMonths: number | null;
 }
 
 export interface BaselineResult {
@@ -104,6 +106,11 @@ export function projectBaseline(p: BaselineParams): BaselineResult {
     else if (avgBurn >= 0) runwayMonths = null;
     else runwayMonths = cash / Math.abs(avgBurn);
 
+    // Runway brut : tresorerie / decaissements du mois. Decaissements = tous les couts cash =
+    // revenu - EBITDA (COGS implicite + socle fixe reconduit), aucun encaissement.
+    const grossOutflow = revenue - ebitda;
+    const grossRunwayMonths = grossOutflow > 0 ? cash / grossOutflow : null;
+
     months.push({
       month: m + 1,
       mrrOpen,
@@ -115,6 +122,7 @@ export function projectBaseline(p: BaselineParams): BaselineResult {
       ebitda,
       cash,
       runwayMonths,
+      grossRunwayMonths,
     });
     mrrOpen = mrrEnd;
   }

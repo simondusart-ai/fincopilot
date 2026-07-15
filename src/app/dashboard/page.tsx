@@ -10,7 +10,7 @@ import { getSupabase } from '@/lib/supabase';
 import { buildConsolidationInputs, loadActuals, toChannel, toCompanyConfig, toDepartment, toDriverDef } from '@/lib/data';
 import type { ActualsData, BudgetMode, SubmissionRow } from '@/lib/data';
 import { consolidate, projectBaseline, simulateRound } from '@/lib/engine';
-import { fmtEur, fmtKEur, fmtMonths } from '@/lib/format';
+import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
 
 // Ligne de tableau mensuel : 'line' = détail, 'solde' = ligne surlignée (fond lavande),
@@ -56,6 +56,33 @@ interface KpiDef {
   mainTone?: 'default' | 'bad';
   mainHint?: string;
   mainDot?: boolean;
+  /** Valeur affichee sur la carte attenuee (baseline). A defaut, deduite de sansRaw. */
+  mutedValue?: string;
+}
+
+/**
+ * Affichage du runway NET : valeur de janvier (premier mois budgete), avec le point bas en
+ * sous-libelle quand il differe. Jamais "n.a." : "Illimite" quand il n'y a aucun burn net.
+ */
+function netRunwayDisplay(
+  months: { runwayMonths: number | null }[],
+  minRunway: number | null,
+  freezeThreshold: number,
+): { value: string; hint?: string; bad: boolean } {
+  if (minRunway === null) return { value: 'Illimité', hint: 'EBITDA positif sur la période', bad: false };
+  let lowIdx = 0;
+  let low = Infinity;
+  months.forEach((m, i) => {
+    if (m.runwayMonths !== null && m.runwayMonths < low) { low = m.runwayMonths; lowIdx = i; }
+  });
+  const jan = months[0]?.runwayMonths ?? null;
+  const value = jan === null ? 'Illimité' : fmtMonths(jan);
+  const differs = jan === null || Math.abs(jan - low) > 0.05;
+  return {
+    value,
+    hint: differs ? `point bas : ${low.toFixed(1)} mois (${MONTH_LABELS[lowIdx]})` : undefined,
+    bad: low < freezeThreshold,
+  };
 }
 
 /** Titre de section homogène, cible des ancres de la mini-navigation. */
@@ -402,10 +429,17 @@ export default function DashboardPage() {
       })
     : [];
 
+  // Point bas du runway brut (mois) sur la periode, pour la colonne Solde.
+  const minGross = (ms: { grossRunwayMonths: number | null }[]): number | null => {
+    const vals = ms.map((r) => r.grossRunwayMonths).filter((v): v is number => v !== null);
+    return vals.length ? Math.min(...vals) : null;
+  };
+
   const withCashRows: PnlTableRow[] = result.ok
     ? [
         { label: 'Solde de trésorerie fin de période (k€)', format: 'amount', strong: true, months: M.map((r) => r.cash), annual: M[11].cash },
-        { label: 'Runway (mois)', format: 'months', muted: true, months: M.map((r) => r.runwayMonths), annual: result.totals!.minRunway },
+        { label: 'Runway net (mois)', format: 'months', muted: true, months: M.map((r) => r.runwayMonths), annual: result.totals!.minRunway },
+        { label: 'Runway brut (mois)', format: 'months', muted: true, months: M.map((r) => r.grossRunwayMonths), annual: minGross(M) },
       ]
     : [];
 
@@ -442,12 +476,16 @@ export default function DashboardPage() {
   const baselineCashRows: PnlTableRow[] = baseline
     ? [
         { label: 'Solde de trésorerie fin de période (k€)', format: 'amount', strong: true, months: bm.map((x) => x.cash), annual: bm[11].cash },
-        { label: 'Runway (mois)', format: 'months', muted: true, months: bm.map((x) => x.runwayMonths), annual: baseline.res.totals.minRunway },
+        { label: 'Runway net (mois)', format: 'months', muted: true, months: bm.map((x) => x.runwayMonths), annual: baseline.res.totals.minRunway },
+        { label: 'Runway brut (mois)', format: 'months', muted: true, months: bm.map((x) => x.grossRunwayMonths), annual: minGross(bm) },
       ]
     : [];
 
   // Six KPIs comparables (avec navettes / sans navettes). La projection sans navettes n'a
   // pas de CAC (aucun canal modélisé) : sa carte et son chip d'impact restent en n.a.
+  const freezeMonths = Number(data.company.runway_freeze_months);
+  const withNet = result.ok ? netRunwayDisplay(M, result.totals!.minRunway, freezeMonths) : null;
+  const sansNet = baseline ? netRunwayDisplay(baseline.res.months, baseline.res.totals.minRunway, freezeMonths) : null;
   const kpiDefs: KpiDef[] = result.ok
     ? [
         { title: "MRR fin d'année", format: 'amount', withRaw: result.totals!.mrrEnd, sansRaw: baseline?.res.totals.mrrEnd ?? null, mainValue: fmtKEur(result.totals!.mrrEnd) },
@@ -462,21 +500,38 @@ export default function DashboardPage() {
         },
         { title: "Trésorerie fin d'année", format: 'amount', withRaw: result.totals!.endCash, sansRaw: baseline?.res.totals.endCash ?? null, mainValue: fmtKEur(result.totals!.endCash), mainTone: result.totals!.endCash < 0 ? 'bad' : 'default' },
         {
+          // Runway NET (convention inchangee), valeur de janvier + point bas ; jamais n.a.
           title: 'Runway',
           format: 'months',
           withRaw: result.totals!.minRunway,
           sansRaw: baseline?.res.totals.minRunway ?? null,
-          mainValue: fmtMonths(result.totals!.minRunway),
-          mainTone: result.totals!.minRunway !== null && result.totals!.minRunway < Number(data.company.runway_freeze_months) ? 'bad' : 'default',
-          mainHint: `Seuils : vigilance ${data.company.runway_vigilance_months} mois, gel ${data.company.runway_freeze_months} mois`,
+          mainValue: withNet!.value,
+          mainHint: withNet!.hint,
+          mainTone: withNet!.bad ? 'bad' : 'default',
+          mutedValue: sansNet?.value,
+        },
+        {
+          // Runway BRUT : stress test a zero encaissement, valeur de janvier.
+          title: 'Runway brut',
+          format: 'months',
+          withRaw: M[0].grossRunwayMonths,
+          sansRaw: baseline?.res.months[0].grossRunwayMonths ?? null,
+          mainValue: fmtMonths(M[0].grossRunwayMonths),
+          mainHint: 'hypothèse zéro encaissement',
+          mutedValue: baseline ? fmtMonths(baseline.res.months[0].grossRunwayMonths) : undefined,
         },
         { title: 'CAC moyen', format: 'cac', withRaw: result.totals!.blendedCac, sansRaw: null, mainValue: result.totals!.blendedCac !== null ? fmtEur(result.totals!.blendedCac) : 'n.a.', mainHint: result.totals!.grossPaybackMonths !== null ? `Payback brut ${result.totals!.grossPaybackMonths.toFixed(1)} mois` : undefined },
-        { title: 'Revenu', format: 'amount', withRaw: result.totals!.revenue, sansRaw: baseline?.res.totals.revenue ?? null, mainValue: fmtKEur(result.totals!.revenue) },
       ]
     : [];
 
   const kpiMutedValue = (d: KpiDef): string =>
-    d.format === 'cac' || d.sansRaw === null ? 'n.a.' : d.format === 'months' ? fmtMonths(d.sansRaw) : fmtKEur(d.sansRaw);
+    d.mutedValue !== undefined
+      ? d.mutedValue
+      : d.format === 'cac' || d.sansRaw === null
+        ? 'n.a.'
+        : d.format === 'months'
+          ? fmtMonths(d.sansRaw)
+          : fmtKEur(d.sansRaw);
   const kpiChip = (d: KpiDef): { text: string; negative: boolean } => {
     if (d.format === 'cac' || d.sansRaw === null || d.withRaw === null) return { text: 'n.a.', negative: false };
     const delta = d.withRaw - d.sansRaw;
@@ -664,9 +719,8 @@ export default function DashboardPage() {
 
               <section className="mt-8">
                 <SectionTitle id="kpis">Indicateurs clés, projection sans navettes</SectionTitle>
-                <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
+                <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
                   <Card title="MRR fin d'année" value={fmtKEur(baseline.res.totals.mrrEnd)} tone="bad" hint="Érodé par le churn" />
-                  <Card title="Revenu" value={fmtKEur(baseline.res.totals.revenue)} />
                   <Card
                     title="EBITDA"
                     value={fmtKEur(baseline.res.totals.ebitda)}
@@ -674,11 +728,9 @@ export default function DashboardPage() {
                     hint={`${baseline.prevYear} réalisé : ${fmtKEur(baseline.prevYearEbitda)}`}
                   />
                   <Card title="Trésorerie fin d'année" value={fmtKEur(baseline.res.totals.endCash)} tone={baseline.res.totals.endCash < 0 ? 'bad' : 'default'} />
-                  <Card
-                    title="Runway"
-                    value={fmtMonths(baseline.res.totals.minRunway)}
-                    tone={baseline.res.totals.minRunway !== null && baseline.res.totals.minRunway < Number(data.company.runway_freeze_months) ? 'bad' : 'default'}
-                  />
+                  <Card title="Runway" value={sansNet!.value} hint={sansNet!.hint} tone={sansNet!.bad ? 'bad' : 'default'} />
+                  <Card title="Runway brut" value={fmtMonths(baseline.res.months[0].grossRunwayMonths)} hint="hypothèse zéro encaissement" />
+                  <Card title="Revenu" value={fmtKEur(baseline.res.totals.revenue)} />
                 </div>
               </section>
 

@@ -249,6 +249,11 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
     else if (avgBurn >= 0) runwayMonths = null;
     else runwayMonths = cash / Math.abs(avgBurn);
 
+    // Runway BRUT : tresorerie de fin de mois / decaissements du mois (tous les couts cash,
+    // COGS + salaires + opex + canaux + capex, deja agreges dans totalDeptCosts). Aucun
+    // encaissement pris en compte : stress test toujours fini quand il y a des decaissements.
+    const grossRunwayMonths = totalDeptCosts > 0 ? cash / totalDeptCosts : null;
+
     const nrrAnnualized = mrrOpen > 0 ? Math.pow((mrrOpen + expansionMrr[m] - churnedMrr) / mrrOpen, 12) : null;
 
     months.push({
@@ -272,6 +277,7 @@ export function consolidate(inputs: ConsolidationInputs): ConsolidationResult {
       ebitda,
       cash,
       runwayMonths,
+      grossRunwayMonths,
       nrrAnnualized,
     });
 
