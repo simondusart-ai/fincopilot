@@ -427,6 +427,38 @@ export const FINCOPILOT_ACTUALS_2026: ActualMonthInput[] = [
   { month: 12, newClients: 1131, churnedClients: 291, mrrEnd: 933_000, revenueMonth: null, smSpend: 727_233, cashEnd: 6_230_000, nrrMeasured: 0.99 },
 ];
 
+/** Hypotheses de la simulation pluriannuelle (memoire Section 2). Montants en K€, ARPA/CAC en €. */
+export interface SimulationAssumptionsSeed {
+  growth: [number, number, number];
+  grossMarginPct: number;
+  smGrowth: number;
+  smFrozenAmount: number;
+  daBase: number;
+  daStep: number;
+  openingCash: number;
+  arrEndN: number;
+  arpaMonthly: number;
+  monthlyChurn: number;
+  baseClientsEndN: number;
+  cacTrajectory: number[];
+}
+
+/** Simulation FinCopilot : les valeurs du memoire Section 2 (croissance +40 %, S&M gele a 7 000). */
+export const FINCOPILOT_SIMULATION: SimulationAssumptionsSeed = {
+  growth: [0.4, 0.4, 0.4],
+  grossMarginPct: 0.7,
+  smGrowth: 0.75,
+  smFrozenAmount: 7_000,
+  daBase: 110,
+  daStep: 10,
+  openingCash: 6_230,
+  arrEndN: 11_200,
+  arpaMonthly: 41,
+  monthlyChurn: 0.013,
+  baseClientsEndN: 23_225,
+  cacTrajectory: [580, 515, 490, 470],
+};
+
 /**
  * Business case d'exemple pour FinCopilot : l'offre CGP de la Section 2, en lecture
  * defavorable (VAN negative), proposee et ciblee sur FA&P pour la demonstration d'arbitrage.

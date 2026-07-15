@@ -15,10 +15,12 @@ import {
   FINCOPILOT_ACTUALS_2026,
   FINCOPILOT_BUSINESS_CASES,
   FINCOPILOT_PNL_YEARS,
+  FINCOPILOT_SIMULATION,
   HEXAFLOOR,
   type BusinessCaseSeed,
   type PnlYearSeed,
   type SeedCompany,
+  type SimulationAssumptionsSeed,
 } from '../src/lib/seed-data';
 import type { ActualMonthInput } from '../src/lib/engine';
 
@@ -26,6 +28,7 @@ interface CompanyHistory {
   pnlYears: PnlYearSeed[];
   actuals: ActualMonthInput[];
   businessCases?: BusinessCaseSeed[];
+  simulation?: SimulationAssumptionsSeed;
 }
 
 const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -274,6 +277,30 @@ async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
       if (error) throw new Error(error.message);
       console.log(`${cfg.name} : ${bcRows.length} business case(s) propose(s).`);
     }
+
+    // Hypotheses de la simulation pluriannuelle (societes concernees uniquement).
+    if (history.simulation) {
+      const s = history.simulation;
+      const { error } = await sb.from('simulation_assumptions').insert({
+        company_id: company.id,
+        growth_n1: s.growth[0],
+        growth_n2: s.growth[1],
+        growth_n3: s.growth[2],
+        gross_margin_pct: s.grossMarginPct,
+        sm_growth: s.smGrowth,
+        sm_frozen_amount: s.smFrozenAmount,
+        da_base: s.daBase,
+        da_step: s.daStep,
+        opening_cash: s.openingCash,
+        arr_end_n: s.arrEndN,
+        arpa_monthly: s.arpaMonthly,
+        monthly_churn: s.monthlyChurn,
+        base_clients_end_n: s.baseClientsEndN,
+        cac_trajectory: s.cacTrajectory,
+      });
+      if (error) throw new Error(error.message);
+      console.log(`${cfg.name} : hypotheses de simulation renseignees.`);
+    }
   }
 
   console.log(`${cfg.name} : ${seed.departments.length} départements, ${seed.submissions.length} navettes, ${seed.users.length} comptes.`);
@@ -281,7 +308,7 @@ async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
 
 async function main() {
   const jobs: Array<[SeedCompany, CompanyHistory | undefined]> = [
-    [FINCOPILOT, { pnlYears: FINCOPILOT_PNL_YEARS, actuals: FINCOPILOT_ACTUALS_2026, businessCases: FINCOPILOT_BUSINESS_CASES }],
+    [FINCOPILOT, { pnlYears: FINCOPILOT_PNL_YEARS, actuals: FINCOPILOT_ACTUALS_2026, businessCases: FINCOPILOT_BUSINESS_CASES, simulation: FINCOPILOT_SIMULATION }],
     [HEXAFLOOR, undefined],
   ];
   for (const [seed, history] of jobs) {

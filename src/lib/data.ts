@@ -11,6 +11,7 @@ import type {
   DriverKind,
   LineFrequency,
   QuarterValues,
+  ScenarioAssumptions,
   Submission,
   SubmissionLine,
 } from './engine';
@@ -225,6 +226,52 @@ export async function loadActuals(): Promise<ActualsData> {
     pnlYears: (pnl.data ?? []) as PnlYearRow[],
     monthlyActuals: (monthly.data ?? []) as MonthlyActualRow[],
     channelActuals: (channel.data ?? []) as ChannelActualRow[],
+  };
+}
+
+/** Hypotheses de la simulation pluriannuelle (table simulation_assumptions). */
+export interface SimulationAssumptionsRow {
+  id: string;
+  company_id: string;
+  growth_n1: number;
+  growth_n2: number;
+  growth_n3: number;
+  gross_margin_pct: number;
+  sm_growth: number;
+  sm_frozen_amount: number;
+  da_base: number;
+  da_step: number;
+  opening_cash: number;
+  arr_end_n: number;
+  arpa_monthly: number;
+  monthly_churn: number;
+  base_clients_end_n: number;
+  /** Trajectoire trimestrielle de CAC (rappel informatif). */
+  cac_trajectory: number[];
+}
+
+/** Charge les hypotheses de simulation de la societe. null si aucune n'est renseignee. */
+export async function loadSimulationAssumptions(): Promise<SimulationAssumptionsRow | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.from('simulation_assumptions').select('*').maybeSingle();
+  if (error) throw new Error(`Erreur de chargement des hypotheses de simulation : ${error.message}`);
+  return (data as SimulationAssumptionsRow | null) ?? null;
+}
+
+/** Convertit une ligne d'hypotheses en entree du moteur de simulation. */
+export function toScenarioAssumptions(row: SimulationAssumptionsRow): ScenarioAssumptions {
+  return {
+    growth: [Number(row.growth_n1), Number(row.growth_n2), Number(row.growth_n3)],
+    grossMarginPct: Number(row.gross_margin_pct),
+    smGrowth: Number(row.sm_growth),
+    smFrozenAmount: Number(row.sm_frozen_amount),
+    daBase: Number(row.da_base),
+    daStep: Number(row.da_step),
+    openingCash: Number(row.opening_cash),
+    arrEndN: Number(row.arr_end_n),
+    arpaMonthly: Number(row.arpa_monthly),
+    monthlyChurn: Number(row.monthly_churn),
+    baseClientsEndN: Number(row.base_clients_end_n),
   };
 }
 

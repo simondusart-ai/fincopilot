@@ -5,6 +5,15 @@ export { consolidate, fmtK, effectiveMonthlyChurn } from './consolidate';
 export { caGeneratedByQuarter } from './ca-generated';
 export { realizedAnnualPnl, budgetAnnualPnl } from './pnl-annual';
 export type { AnnualPnl } from './pnl-annual';
+export { projectScenarios, realizedScenarioYear } from './scenario';
+export type {
+  ScenarioAssumptions,
+  ScenarioHistoryYearN,
+  ScenarioYear,
+  Scenario,
+  ScenariosResult,
+  CacEffort,
+} from './scenario';
 export { diffSubmissions } from './diff';
 export { projectBaseline, reconductedFixedCosts } from './baseline';
 export type { BaselineParams, BaselineMonth, BaselineResult } from './baseline';
