@@ -49,7 +49,7 @@ type MetricRow = {
 const METRIC_ROWS: MetricRow[] = [
   { label: 'MRR fin de mois (k€)', group: 'croissance', solde: true, fmt: (r) => kK(r.mrrEnd) },
   { label: 'croissance m/m', group: 'croissance', sub: true, fmt: (r) => (r.mrrGrowthMoM === null ? '' : signedPct(r.mrrGrowthMoM)) },
-  { label: 'Base clients', group: 'croissance', fmt: (r) => r.baseEnd.toLocaleString('fr-FR') },
+  { label: 'Base clients (ouverture)', group: 'croissance', fmt: (r) => r.baseOpen.toLocaleString('fr-FR') },
   { label: 'Nouveaux clients', group: 'croissance', fmt: (r) => r.newClients.toLocaleString('fr-FR') },
   { label: 'Clients churnés', group: 'croissance', fmt: (r) => r.churnedClients.toLocaleString('fr-FR') },
   { label: 'churn logo (%)', group: 'croissance', sub: true, fmt: (r) => (r.monthlyLogoChurn === null ? '' : fmtPct(r.monthlyLogoChurn, 1)) },
