@@ -70,7 +70,7 @@ function Picto({ icon }: { icon: KpiIcon }) {
   );
 }
 
-function DimensionTag({ dimension }: { dimension: KpiDimension }) {
+export function DimensionTag({ dimension }: { dimension: KpiDimension }) {
   const base = 'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide';
   if (dimension === 'croissance') return <span className={`${base} bg-primary text-white`}>Croissance</span>;
   if (dimension === 'rentabilite') return <span className={`${base} bg-lav text-ink`}>Rentabilité</span>;

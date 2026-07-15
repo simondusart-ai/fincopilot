@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Badge, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
 import { InfoTip } from '@/components/info-tip';
-import { KpiCardPilotage } from '@/components/kpi-card-pilotage';
+import { DimensionTag, KpiCardPilotage, type KpiDimension } from '@/components/kpi-card-pilotage';
 import { AlertBanners } from '@/components/alert-banner';
 import { getSupabase } from '@/lib/supabase';
 import { buildConsolidationInputs, loadActuals, type ActualsData } from '@/lib/data';
@@ -35,20 +35,30 @@ const MONTHLY_FIELDS: { key: keyof MonthlyForm; label: string }[] = [
 const kK = (v: number) => Math.round(v / 1000).toLocaleString('fr-FR');
 const signedPct = (v: number) => `${v >= 0 ? '+' : ''}${fmtPct(v, 1)}`;
 
-// Ordre coherent avec les tuiles. Les lignes 'sub' sont des sous-lignes italiques grises.
-const METRIC_ROWS: { label: string; solde?: boolean; sub?: boolean; fmt: (r: ActualMonthResult) => string }[] = [
-  { label: 'MRR fin de mois (k€)', solde: true, fmt: (r) => kK(r.mrrEnd) },
-  { label: 'croissance m/m', sub: true, fmt: (r) => (r.mrrGrowthMoM === null ? '' : signedPct(r.mrrGrowthMoM)) },
-  { label: 'Nouveaux clients', fmt: (r) => r.newClients.toLocaleString('fr-FR') },
-  { label: 'Clients churnés', fmt: (r) => r.churnedClients.toLocaleString('fr-FR') },
-  { label: 'churn logo (%)', sub: true, fmt: (r) => (r.monthlyLogoChurn === null ? '' : fmtPct(r.monthlyLogoChurn, 1)) },
-  { label: 'Ajouts nets', fmt: (r) => r.netAdds.toLocaleString('fr-FR') },
-  { label: 'ARPA implicite (€)', fmt: (r) => (r.arpaImplicit === null ? '' : fmtEur(r.arpaImplicit)) },
-  { label: 'NRR', fmt: (r) => (r.nrr === null ? '' : fmtPct(r.nrr)) },
-  { label: 'CAC moyen (€)', fmt: (r) => (r.cacAvg === null ? '' : fmtEur(r.cacAvg)) },
-  { label: 'Marge de contribution (%)', fmt: (r) => (r.contributionMarginPct === null ? '' : fmtPct(r.contributionMarginPct)) },
-  { label: 'Burn (k€)', fmt: (r) => (r.burn === null ? '' : kK(r.burn)) },
-  { label: 'Runway (mois)', solde: true, fmt: (r) => (r.runwayMonths === null ? '' : r.runwayMonths.toFixed(1)) },
+// Regroupement par dimension (coherent avec les cartes du Lot K). L'ORDRE des indicateurs
+// est INCHANGE. 'sub' = sous-ligne italique grise ; 'solde' = fond lavande. 'breach' signale,
+// sur le dernier mois saisi seulement, un depassement de cible (mis en rouge).
+type MetricRow = {
+  label: string;
+  group: KpiDimension;
+  solde?: boolean;
+  sub?: boolean;
+  fmt: (r: ActualMonthResult) => string;
+  breach?: (r: ActualMonthResult, ctx: { target: number | null; freeze: number }) => boolean;
+};
+const METRIC_ROWS: MetricRow[] = [
+  { label: 'MRR fin de mois (k€)', group: 'croissance', solde: true, fmt: (r) => kK(r.mrrEnd) },
+  { label: 'croissance m/m', group: 'croissance', sub: true, fmt: (r) => (r.mrrGrowthMoM === null ? '' : signedPct(r.mrrGrowthMoM)) },
+  { label: 'Nouveaux clients', group: 'croissance', fmt: (r) => r.newClients.toLocaleString('fr-FR') },
+  { label: 'Clients churnés', group: 'croissance', fmt: (r) => r.churnedClients.toLocaleString('fr-FR') },
+  { label: 'churn logo (%)', group: 'croissance', sub: true, fmt: (r) => (r.monthlyLogoChurn === null ? '' : fmtPct(r.monthlyLogoChurn, 1)) },
+  { label: 'Ajouts nets', group: 'croissance', fmt: (r) => r.netAdds.toLocaleString('fr-FR') },
+  { label: 'ARPA implicite (€)', group: 'croissance', fmt: (r) => (r.arpaImplicit === null ? '' : fmtEur(r.arpaImplicit)) },
+  { label: 'NRR', group: 'croissance', fmt: (r) => (r.nrr === null ? '' : fmtPct(r.nrr)), breach: (r) => r.nrr !== null && r.nrr < 1 },
+  { label: 'CAC moyen (€)', group: 'rentabilite', fmt: (r) => (r.cacAvg === null ? '' : fmtEur(r.cacAvg)), breach: (r, c) => r.cacAvg !== null && c.target !== null && r.cacAvg > c.target },
+  { label: 'Marge de contribution (%)', group: 'rentabilite', fmt: (r) => (r.contributionMarginPct === null ? '' : fmtPct(r.contributionMarginPct)), breach: (r) => r.contributionMarginPct !== null && r.contributionMarginPct < 0 },
+  { label: 'Burn (k€)', group: 'cash', fmt: (r) => (r.burn === null ? '' : kK(r.burn)) },
+  { label: 'Runway (mois)', group: 'cash', solde: true, fmt: (r) => (r.runwayMonths === null ? '' : r.runwayMonths.toFixed(1)), breach: (r, c) => r.runwayMonths !== null && r.runwayMonths < c.freeze },
 ];
 
 // P&L annuel a la structure du Budget. 'solde' = fond lavande ; 'pct' = sous-ligne grise.
@@ -372,23 +382,41 @@ export default function PilotagePage() {
                   <thead>
                     <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
                       <th className="sticky left-0 z-10 bg-white px-5 py-3 font-semibold">Indicateur</th>
-                      {MONTH_LABELS.map((m) => (<th key={m} className="px-3 py-3 text-right font-semibold">{m}</th>))}
+                      {MONTH_LABELS.map((m, i) => (
+                        <th key={m} className={`px-3 py-3 text-right font-semibold ${i + 1 === lastMonthNum ? 'text-primary' : ''}`}>{m}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {METRIC_ROWS.map(({ label, solde, sub, fmt }) => (
-                      <tr key={label} className={solde ? 'bg-lav' : sub ? '' : 'border-b border-lav/60'}>
-                        <td className={`sticky left-0 z-10 px-5 py-1.5 ${solde ? 'bg-lav font-semibold' : sub ? 'bg-white italic text-ink/50' : 'bg-white'}`}>{label}</td>
-                        {MONTH_LABELS.map((_, i) => {
-                          const r = byMonth.get(i + 1);
-                          return (
-                            <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${solde ? 'font-semibold' : ''} ${sub ? 'italic text-ink/50' : ''}`}>
-                              {r ? fmt(r) : noMonthsSaved ? <span className="text-ink/40">À venir</span> : ''}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                    {METRIC_ROWS.map((row, idx) => {
+                      const { label, group, solde, sub, fmt, breach } = row;
+                      const newGroup = idx === 0 || METRIC_ROWS[idx - 1].group !== group;
+                      return (
+                        <Fragment key={label}>
+                          {newGroup && (
+                            <tr>
+                              <td className="sticky left-0 z-10 bg-white px-5 pb-2 pt-5">
+                                <DimensionTag dimension={group} />
+                              </td>
+                              {MONTH_LABELS.map((_, i) => (<td key={i} className="bg-white" />))}
+                            </tr>
+                          )}
+                          <tr className={solde ? 'bg-lav' : ''}>
+                            <td className={`sticky left-0 z-10 px-5 py-1.5 ${solde ? 'bg-lav font-semibold' : sub ? 'bg-white italic text-ink/50' : 'bg-white'}`}>{label}</td>
+                            {MONTH_LABELS.map((_, i) => {
+                              const r = byMonth.get(i + 1);
+                              // Rouge uniquement sur le dernier mois saisi, quand la cible est depassee.
+                              const breached = i + 1 === lastMonthNum && !!r && (breach?.(r, { target, freeze }) ?? false);
+                              return (
+                                <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${solde ? 'font-semibold' : ''} ${sub ? 'italic text-ink/50' : ''} ${breached ? 'font-semibold text-red-600' : ''}`}>
+                                  {r ? fmt(r) : noMonthsSaved ? <span className="text-ink/40">À venir</span> : ''}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
