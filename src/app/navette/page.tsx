@@ -39,7 +39,7 @@ const KIND_LABEL: Record<string, string> = {
   opex: 'Dépenses (€ / trimestre)',
   cogs: 'Coût des ventes, COGS (€ / trimestre)',
   channel_spend: 'Dépenses du canal (€ / trimestre)',
-  channel_customers: 'Nouveaux clients du canal (nb / trimestre)',
+  channel_customers: 'Nouveaux leads du canal (nb / trimestre)',
   capex: 'Investissement (€ / trimestre)',
 };
 
@@ -59,12 +59,15 @@ interface SectionDef {
   addLabel?: string;
   hasVendor?: boolean;
 }
+// Ordre volontaire : Acquisition (volumes de leads seuls) en premier bloc, puis Topline,
+// COGS, Masse salariale, Opex et investissements. Les DEPENSES des canaux sont de l'Opex :
+// elles vivent dans la section Opex, pas dans Acquisition (qui ne porte que les volumes).
 const SECTIONS: SectionDef[] = [
+  { id: 'acquisition', title: 'Acquisition par canal', kinds: ['channel_customers'], isCost: false },
   { id: 'topline', title: 'Topline', kinds: ['new_mrr', 'expansion_mrr', 'revenue_other'], isCost: false },
-  { id: 'acquisition', title: 'Acquisition par canal', kinds: ['channel_spend', 'channel_customers'], isCost: true },
-  { id: 'payroll', title: 'Masse salariale', kinds: ['payroll', 'headcount'], isCost: true, addKind: 'payroll', addLabel: 'Ajouter un poste' },
   { id: 'cogs', title: 'COGS', kinds: ['cogs'], isCost: true },
-  { id: 'opex', title: 'Opex et investissements', kinds: ['opex', 'capex'], isCost: true, addKind: 'opex', addLabel: 'Ajouter une dépense', hasVendor: true },
+  { id: 'payroll', title: 'Masse salariale', kinds: ['payroll', 'headcount'], isCost: true, addKind: 'payroll', addLabel: 'Ajouter un poste' },
+  { id: 'opex', title: 'Opex et investissements', kinds: ['opex', 'capex', 'channel_spend'], isCost: true, addKind: 'opex', addLabel: 'Ajouter une dépense', hasVendor: true },
 ];
 
 /** Ligne libre en cours d'édition. */
@@ -216,7 +219,8 @@ export default function NavettePage() {
     if (!line) return 0;
     const v = num(line.q[i]);
     if (def.kind === 'headcount') return v * 3 * num(line.unitCost);
-    if (def.kind === 'channel_customers') return 0;
+    // channel_customers : volume de leads. Sa section est hors total des couts (isCost false),
+    // donc renvoyer le volume n'alimente que le sous-total de leads, jamais un cout.
     return v;
   };
 
@@ -254,13 +258,15 @@ export default function NavettePage() {
     return drivers.length + cs.length + bcs.length > 0 || s.addKind !== undefined;
   });
 
-  // Lignes du recap P&L : une par section REELLEMENT presente (avec des lignes), dans le
-  // meme ordre que la saisie. On reutilise sectionQuarters : aucun recalcul parallele,
-  // donc les montants collent a l'euro pres aux sous-totaux affiches plus bas.
-  const recapRows: PnlRecapRow[] = SECTIONS.filter((s) => {
-    const { drivers, customs: cs, bcs } = sectionLines(s);
-    return drivers.length + cs.length + bcs.length > 0;
-  }).map((s) => ({ id: s.id, title: s.title, isCost: s.isCost, quarters: sectionQuarters(s) }));
+  // Recap P&L : TOUJOURS les memes quatre lignes, dans le meme ordre, presentes ou non sur
+  // cette navette (Topline, COGS, Masse salariale, Opex et investissements). L'acquisition
+  // par canal n'y figure pas : ses depenses sont comptees dans l'Opex. On reutilise
+  // sectionQuarters (aucun recalcul parallele) : les montants collent a l'euro pres.
+  const RECAP_SECTION_IDS: SectionId[] = ['topline', 'cogs', 'payroll', 'opex'];
+  const recapRows: PnlRecapRow[] = RECAP_SECTION_IDS.map((id) => {
+    const s = SECTIONS.find((x) => x.id === id)!;
+    return { id: s.id, title: s.title, isCost: s.isCost, quarters: sectionQuarters(s) };
+  });
 
   function validateLocally(): string[] {
     const errs: string[] = [];
