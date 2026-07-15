@@ -28,14 +28,14 @@ export function NavettePnlRecap({
   budgetYear,
   rows,
   envelope,
-  caGenerated,
+  caGeneratedQuarters,
   caGeneratedInfo,
 }: {
   budgetYear: number;
   rows: PnlRecapRow[];
   envelope: number | null;
-  /** CA genere sur l'annee par les ajouts de MRR + one-shot (ligne calculee). */
-  caGenerated?: number;
+  /** CA genere par trimestre (ligne calculee) ; le total annuel est leur somme. */
+  caGeneratedQuarters?: number[];
   caGeneratedInfo?: string;
 }) {
   const nonCostRows = rows.filter((r) => !r.isCost);
@@ -74,20 +74,19 @@ export function NavettePnlRecap({
               </tr>
             ))}
 
-            {/* CA genere sur l'annee : ligne calculee (billing des ajouts + one-shot), annuel seulement */}
-            {caGenerated != null && (
+            {/* CA genere : ligne calculee (billing par cohorte des ajouts + one-shot), par trimestre */}
+            {caGeneratedQuarters != null && (
               <tr className="border-b border-lav/60 bg-mint/10">
                 <td className="px-5 py-2">
                   <span className="inline-flex items-center gap-1">
-                    CA généré sur l&apos;année
+                    CA généré
                     {caGeneratedInfo && <InfoTip text={caGeneratedInfo} />}
                   </span>
                 </td>
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" />
-                <td className="px-5 py-2 text-right font-semibold tabular-nums">{k(caGenerated)}</td>
+                {[0, 1, 2, 3].map((i) => (
+                  <td key={i} className="px-3 py-2 text-right tabular-nums">{k(caGeneratedQuarters[i] ?? 0)}</td>
+                ))}
+                <td className="px-5 py-2 text-right font-semibold tabular-nums">{k(sum(caGeneratedQuarters))}</td>
               </tr>
             )}
 

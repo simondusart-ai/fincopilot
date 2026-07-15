@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { consolidate, diffSubmissions } from '../index';
+import { consolidate, diffSubmissions, type Submission } from '../index';
 import { FINCOPILOT, HEXAFLOOR, seedToEngineInputs } from '../../seed-data';
 
 /**
@@ -64,13 +64,24 @@ describe('seed FinCopilot : rebouclage avec le scénario rebound', () => {
 
   it('le diff Growth v1 vers v2 rend du cash et de l’EBITDA', () => {
     const defs = inputs.driverDefs;
-    const v1 = FINCOPILOT.submissions.find((s) => s.departmentId === 'fc-growth' && s.version === 1)!;
-    const v2 = FINCOPILOT.submissions.find((s) => s.departmentId === 'fc-growth' && s.version === 2)!;
+    // Aplatit une soumission de seed (lignes du referentiel + lignes libres) au format moteur :
+    // la masse salariale Growth vit desormais en ligne libre, elle doit compter dans le cout.
+    const flatten = (s: (typeof FINCOPILOT.submissions)[number]): Submission => ({
+      departmentId: s.departmentId,
+      version: s.version,
+      status: s.status,
+      lines: [
+        ...s.lines.map((l) => ({ driverDefId: l.driverDefId, q: l.q, unitCost: l.unitCost })),
+        ...(s.customLines ?? []).map((c) => ({ id: c.id, kind: c.kind, label: c.label, frequency: c.frequency, q: c.q, isNew: c.isNew, vendor: c.vendor })),
+      ],
+    });
+    const v1 = flatten(FINCOPILOT.submissions.find((s) => s.departmentId === 'fc-growth' && s.version === 1)!);
+    const v2 = flatten(FINCOPILOT.submissions.find((s) => s.departmentId === 'fc-growth' && s.version === 2)!);
     const inputsWithV1 = {
       ...inputs,
-      submissions: inputs.submissions.map((s) => (s.departmentId === 'fc-growth' ? { ...v1 } : s)),
+      submissions: inputs.submissions.map((s) => (s.departmentId === 'fc-growth' ? v1 : s)),
     };
-    const diff = diffSubmissions(defs, inputs.config, { ...v1 }, { ...v2 }, inputsWithV1);
+    const diff = diffSubmissions(defs, inputs.config, v1, v2, inputsWithV1);
     expect(diff.lines.length).toBeGreaterThan(0);
     expect(diff.impact!.deltaEbitda).toBeGreaterThan(0);
     // la v1 dépasse l'enveloppe Growth : vérifié en consolidant avec la v1

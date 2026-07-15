@@ -2,6 +2,7 @@ export * from './types';
 export { monthlyizeFlow, monthlyizeLevel, monthlyizeByFrequency, quartersFromAmount, sum } from './monthlyize';
 export { validateInputs } from './validate';
 export { consolidate, fmtK, effectiveMonthlyChurn } from './consolidate';
+export { caGeneratedByQuarter } from './ca-generated';
 export { diffSubmissions } from './diff';
 export { projectBaseline, reconductedFixedCosts } from './baseline';
 export type { BaselineParams, BaselineMonth, BaselineResult } from './baseline';

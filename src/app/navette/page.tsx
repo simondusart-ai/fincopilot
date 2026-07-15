@@ -6,10 +6,10 @@ import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBa
 import { getSupabase } from '@/lib/supabase';
 import { SubmissionStatusBadge } from '@/components/navette-status-card';
 import { NavettePnlRecap, type PnlRecapRow } from '@/components/navette-pnl-recap';
-import { businessCaseLines, computeBusinessCase, monthlyizeByFrequency, monthlyizeFlow, quartersFromAmount } from '@/lib/engine';
+import { businessCaseLines, caGeneratedByQuarter, computeBusinessCase, monthlyizeByFrequency, monthlyizeFlow, quartersFromAmount } from '@/lib/engine';
 import type { DriverKind, LineFrequency } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
-import type { DriverDefRow, SubmissionRow } from '@/lib/data';
+import type { DriverDefRow, SubmissionCustomLineRow, SubmissionRow } from '@/lib/data';
 
 /** Suggestions de fournisseurs pour les lignes d'outils et de dépenses. */
 const VENDOR_SUGGESTIONS = [
@@ -32,18 +32,19 @@ const KIND_TYPE: Record<string, string> = {
   churn_rate: 'Objectif',
 };
 
+// Sous-libellé d'une ligne : uniquement l'unité, sobre.
 const KIND_LABEL: Record<string, string> = {
-  new_mrr: 'Nouveau +MRR (€ / trimestre)',
-  expansion_mrr: '+MRR d’expansion (€ / trimestre)',
-  revenue_other: 'Revenus non récurrents (€ / trimestre)',
-  headcount: 'Effectifs (ETP, niveau du trimestre)',
-  payroll: 'Masse salariale (€ / trimestre)',
-  opex: 'Dépenses (€ / trimestre)',
-  cogs: 'Coût des ventes, COGS (€ / trimestre)',
-  channel_spend: 'Dépenses du canal (€ / trimestre)',
-  channel_customers: 'Nouveaux leads du canal (nb / trimestre)',
-  capex: 'Investissement (€ / trimestre)',
-  churn_rate: 'Objectif de churn mensuel (% / mois)',
+  new_mrr: '€ / trimestre',
+  expansion_mrr: '€ / trimestre',
+  revenue_other: '€ / trimestre',
+  headcount: 'ETP',
+  payroll: '€ / trimestre',
+  opex: '€ / trimestre',
+  cogs: '€ / trimestre',
+  channel_spend: '€ / trimestre',
+  channel_customers: 'nb / trimestre',
+  capex: '€ / trimestre',
+  churn_rate: '% / mois',
 };
 
 /**
@@ -97,6 +98,23 @@ interface EditLine {
   unitCost: string;
 }
 
+/** Convertit une ligne libre de la base en etat editable local. */
+function rowToCustomEdit(c: SubmissionCustomLineRow): CustomEdit {
+  return {
+    id: c.id,
+    kind: c.kind,
+    label: c.label,
+    vendor: c.vendor ?? '',
+    frequency: c.frequency,
+    isNew: c.is_new,
+    amount: c.amount != null ? String(c.amount) : '',
+    oneshotQuarter: c.oneshot_quarter != null ? String(c.oneshot_quarter) : '1',
+    sort: Number(c.sort) || 0,
+    q: [String(c.q1), String(c.q2), String(c.q3), String(c.q4)] as [string, string, string, string],
+    prevQ4: c.prev_q4 != null ? String(c.prev_q4) : '',
+  };
+}
+
 function bcStatusBadge(status: string) {
   if (status === 'accepted') return <Badge tone="accent" dot="mint">Accepté</Badge>;
   if (status === 'rejected') return <Badge tone="danger">Rejeté</Badge>;
@@ -141,19 +159,7 @@ export default function NavettePage() {
     setCustoms(
       data.customLines
         .filter((c) => c.submission_id === latest.id)
-        .map((c) => ({
-          id: c.id,
-          kind: c.kind,
-          label: c.label,
-          vendor: c.vendor ?? '',
-          frequency: c.frequency,
-          isNew: c.is_new,
-          amount: c.amount != null ? String(c.amount) : '',
-          oneshotQuarter: c.oneshot_quarter != null ? String(c.oneshot_quarter) : '1',
-          sort: Number(c.sort) || 0,
-          q: [String(c.q1), String(c.q2), String(c.q3), String(c.q4)] as [string, string, string, string],
-          prevQ4: c.prev_q4 != null ? String(c.prev_q4) : '',
-        }))
+        .map(rowToCustomEdit)
         .sort((a, b) => a.sort - b.sort),
     );
     const byDef: Record<string, EditLine> = {};
@@ -253,8 +259,6 @@ export default function NavettePage() {
     (total, s) => total + sectionQuarters(s).reduce((a, b) => a + b, 0),
     0,
   );
-  const overEnvelope = dept?.envelope != null && annualCostEstimate > Number(dept.envelope);
-  const withinEnvelope = dept?.envelope != null && !overEnvelope;
 
   // Une section s'affiche si elle a des lignes ; les sections extensibles restent
   // toujours visibles pour que l'ajout soit possible dans TOUS les départements.
@@ -290,8 +294,9 @@ export default function NavettePage() {
     }
     return monthly;
   };
-  const oneShotAnnual = kindQuarters(['revenue_other']).reduce((a, b) => a + b, 0);
-  const caGenerated = mrrAddedMonthly().reduce((acc, v, i) => acc + v * (12 - i), 0) + oneShotAnnual;
+  // CA genere par trimestre (billing par cohorte des ajouts de MRR + one-shot). Total = somme des 4.
+  const caGeneratedQuarters = caGeneratedByQuarter(mrrAddedMonthly(), kindQuarters(['revenue_other']));
+  const caGenerated = caGeneratedQuarters.reduce((a, b) => a + b, 0);
   const caGeneratedInfo =
     'CA facturé par les ajouts de MRR du département sur l’année, avant churn (le churn s’applique à la base totale, au niveau société) ; le CA consolidé de l’onglet Budget fait foi.';
 
@@ -401,6 +406,9 @@ export default function NavettePage() {
     setBusy(true);
     setMessage(null);
     try {
+      // On enregistre d'abord les lignes libres deja saisies (la base reste alignee sur
+      // l'etat local) PUIS on insere la nouvelle. Aucun reload : les autres sections
+      // (etat local `edit` et `customs`) ne sont pas ecrasees. C'est le correctif du bug.
       await persistCustomLines(latest.id);
       const base = kind === 'payroll' ? 'Nouveau poste' : 'Nouvelle dépense';
       const taken = new Set(customs.map((c) => c.label.trim()));
@@ -410,21 +418,26 @@ export default function NavettePage() {
       const frequency: LineFrequency = kind === 'payroll' ? 'mensuel' : 'trimestriel';
       // La nouvelle ligne se place A LA SUITE des existantes, jamais au milieu.
       const nextSort = customs.reduce((max, c) => Math.max(max, c.sort), -1) + 1;
-      const { error } = await supabase.from('submission_custom_lines').insert({
-        submission_id: latest.id,
-        kind,
-        label,
-        is_new: true,
-        vendor: null,
-        frequency,
-        amount: null,
-        oneshot_quarter: null,
-        sort: nextSort,
-        q1: 0, q2: 0, q3: 0, q4: 0,
-      });
+      const { data: created, error } = await supabase
+        .from('submission_custom_lines')
+        .insert({
+          submission_id: latest.id,
+          kind,
+          label,
+          is_new: true,
+          vendor: null,
+          frequency,
+          amount: null,
+          oneshot_quarter: null,
+          sort: nextSort,
+          q1: 0, q2: 0, q3: 0, q4: 0,
+        })
+        .select()
+        .single();
       if (error) throw new Error(error.message);
+      // Fusion dans l'etat local (pas de reinitialisation depuis la base).
+      setCustoms((prev) => [...prev, rowToCustomEdit(created as SubmissionCustomLineRow)].sort((a, b) => a.sort - b.sort));
       setMessage(`Ligne "${label}" ajoutée.`);
-      await reload();
     } catch (e) {
       setMessage(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -440,9 +453,61 @@ export default function NavettePage() {
     setBusy(true);
     setMessage(null);
     try {
+      // Enregistrer les lignes libres saisies (base alignee sur l'etat local) puis supprimer.
+      await persistCustomLines(latest.id);
       const { error } = await supabase.from('submission_custom_lines').delete().eq('id', id);
       if (error) throw new Error(error.message);
-      await reload();
+      // Retrait de l'etat local, sans reload : les saisies non enregistrees sont conservees.
+      setCustoms((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      setMessage(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Enregistre UNIQUEMENT les lignes de la section s (drivers et lignes libres). Sans reload. */
+  async function saveSection(s: SectionDef) {
+    if (!latest || latest.status !== 'draft') {
+      setMessage('Navette figée : créez une nouvelle version pour modifier une section.');
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const sDefs = defs.filter((d) => s.kinds.includes(d.kind));
+      if (sDefs.length > 0) {
+        const rows = sDefs.map((def) => ({
+          submission_id: latest.id,
+          driver_def_id: def.id,
+          q1: num(edit[def.id]?.q[0] ?? ''), q2: num(edit[def.id]?.q[1] ?? ''), q3: num(edit[def.id]?.q[2] ?? ''), q4: num(edit[def.id]?.q[3] ?? ''),
+          unit_cost: def.kind === 'headcount' ? num(edit[def.id]?.unitCost ?? '') : null,
+        }));
+        const { error } = await supabase.from('submission_lines').upsert(rows, { onConflict: 'submission_id,driver_def_id' });
+        if (error) throw new Error(error.message);
+      }
+      const sCustoms = customs.filter((c) => s.kinds.includes(c.kind));
+      if (sCustoms.length > 0) {
+        const rows = sCustoms.map((c) => {
+          const q = customQuarters(c);
+          return {
+            id: c.id,
+            submission_id: latest.id,
+            kind: c.kind,
+            label: c.label.trim(),
+            is_new: c.isNew,
+            vendor: c.vendor.trim() === '' ? null : c.vendor.trim(),
+            frequency: c.frequency,
+            amount: c.amount.trim() === '' ? null : num(c.amount),
+            oneshot_quarter: c.frequency === 'one_shot' ? Number(c.oneshotQuarter) || 1 : null,
+            sort: c.sort,
+            q1: q[0], q2: q[1], q3: q[2], q4: q[3],
+          };
+        });
+        const { error } = await supabase.from('submission_custom_lines').upsert(rows);
+        if (error) throw new Error(error.message);
+      }
+      setMessage(`Section « ${s.title} » enregistrée.`);
     } catch (e) {
       setMessage(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -644,18 +709,14 @@ export default function NavettePage() {
               title="Enveloppe globale"
               value={dept.envelope != null ? fmtKEur(Number(dept.envelope)) : 'Aucune'}
             />
+            {/* Contribution nette = CA genere sur l'annee (avant churn) moins couts du departement.
+                Un departement de couts est normalement negatif : pas de rouge (reserve aux
+                depassements d'enveloppe, signales dans le recap). Pastille menthe si positif. */}
             <Card
-              title="Coût annuel saisi"
-              value={fmtKEur(annualCostEstimate)}
-              tone={overEnvelope ? 'bad' : 'default'}
-              dot={withinEnvelope}
-              hint={
-                dept.envelope == null
-                  ? 'Somme des sections de coût, Topline exclue.'
-                  : overEnvelope
-                    ? 'Somme des sections de coût, au-dessus de l’enveloppe globale.'
-                    : undefined
-              }
+              title="Contribution nette"
+              value={fmtKEur(caGenerated - annualCostEstimate)}
+              dot={caGenerated - annualCostEstimate >= 0}
+              hint="CA généré - coûts du département"
             />
           </div>
 
@@ -664,7 +725,7 @@ export default function NavettePage() {
             budgetYear={data.company.budget_year}
             rows={recapRows}
             envelope={dept.envelope != null ? Number(dept.envelope) : null}
-            caGenerated={caGenerated}
+            caGeneratedQuarters={caGeneratedQuarters}
             caGeneratedInfo={caGeneratedInfo}
           />
 
@@ -757,21 +818,28 @@ export default function NavettePage() {
               <div key={s.id} className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
                 <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
                   <h2 className="font-semibold text-ink">{s.title}</h2>
-                  {/*
-                    Le bouton reste VISIBLE des qu'on peut gerer la navette, et seulement
-                    desactive quand elle est figee : c'etait la cause du bug (il n'etait
-                    rendu qu'en brouillon, or toutes les navettes du seed sont soumises,
-                    donc il n'apparaissait jamais).
-                  */}
-                  {extensible && canManage && (
-                    <button
-                      onClick={() => addCustom(s.addKind!)}
-                      disabled={busy || !canEditLines}
-                      title={canEditLines ? undefined : 'Navette figée : créez une nouvelle version pour ajouter une ligne.'}
-                      className={`${btnSecondary} ml-auto`}
-                    >
-                      {s.addLabel}
-                    </button>
+                  {canManage && (
+                    <div className="ml-auto flex flex-wrap gap-2">
+                      {/* Enregistrement par section, en plus des boutons globaux : n'enregistre que cette section. */}
+                      <button
+                        onClick={() => saveSection(s)}
+                        disabled={busy || !canEditLines}
+                        title={canEditLines ? undefined : 'Navette figée : créez une nouvelle version pour modifier.'}
+                        className={btnSecondary}
+                      >
+                        Enregistrer
+                      </button>
+                      {extensible && (
+                        <button
+                          onClick={() => addCustom(s.addKind!)}
+                          disabled={busy || !canEditLines}
+                          title={canEditLines ? undefined : 'Navette figée : créez une nouvelle version pour ajouter une ligne.'}
+                          className={btnSecondary}
+                        >
+                          {s.addLabel}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 

@@ -69,14 +69,14 @@ function netRunwayDisplay(
   minRunway: number | null,
   freezeThreshold: number,
 ): { value: string; hint?: string; bad: boolean } {
-  if (minRunway === null) return { value: 'Illimité', hint: 'EBITDA positif sur la période', bad: false };
+  if (minRunway === null) return { value: 'n.a.', hint: 'Free cash-flow positif sur la période', bad: false };
   let lowIdx = 0;
   let low = Infinity;
   months.forEach((m, i) => {
     if (m.runwayMonths !== null && m.runwayMonths < low) { low = m.runwayMonths; lowIdx = i; }
   });
   const jan = months[0]?.runwayMonths ?? null;
-  const value = jan === null ? 'Illimité' : fmtMonths(jan);
+  const value = jan === null ? 'n.a.' : fmtMonths(jan);
   const differs = jan === null || Math.abs(jan - low) > 0.05;
   return {
     value,

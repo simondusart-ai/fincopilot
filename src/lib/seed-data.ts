@@ -160,11 +160,11 @@ export const FINCOPILOT: SeedCompany = {
   driverDefs: [
     // Tech & Product
     { id: 'fc-tec-cogs', departmentId: 'fc-tech', code: 'COGS_INFRA', label: 'Hébergement & infra de production (COGS)', kind: 'cogs', sort: 1 },
-    { id: 'fc-tec-hc', departmentId: 'fc-tech', code: 'HC', label: 'Effectifs Tech & Product (ETP)', kind: 'headcount', sort: 2 },
+    // Masse salariale Tech saisie en lignes libres par ETP (comme Sales), voir la navette.
     { id: 'fc-tec-opex', departmentId: 'fc-tech', code: 'OPEX', label: 'Licences & outils dev', kind: 'opex', sort: 3 },
     // Sales
-    { id: 'fc-sal-mrr', departmentId: 'fc-sales', code: 'NEW_MRR_B2B', label: 'New MRR partenariats B2B', kind: 'new_mrr', sort: 1 },
-    { id: 'fc-sal-oneoff', departmentId: 'fc-sales', code: 'ONE_SHOT', label: 'Revenus one-shot (dossiers à l’acte)', kind: 'revenue_other', monthlyKey: 'saison_fiscale', sort: 2 },
+    { id: 'fc-sal-mrr', departmentId: 'fc-sales', code: 'NEW_MRR_B2B', label: 'New MRR', kind: 'new_mrr', sort: 1 },
+    { id: 'fc-sal-oneoff', departmentId: 'fc-sales', code: 'ONE_SHOT', label: 'Revenus one-shot', kind: 'revenue_other', monthlyKey: 'saison_fiscale', sort: 2 },
     // La masse salariale et les outils de Sales sont saisis en lignes libres (voir la navette).
     // Growth : un couple dépenses / clients par canal
     { id: 'fc-grw-sea-s', departmentId: 'fc-growth', code: 'SEA_SPEND', label: 'Dépenses SEA', kind: 'channel_spend', channelId: 'fc-sea', sort: 1 },
@@ -175,16 +175,15 @@ export const FINCOPILOT: SeedCompany = {
     { id: 'fc-grw-soc-c', departmentId: 'fc-growth', code: 'SOC_CUST', label: 'Nouveaux leads Social Ads', kind: 'channel_customers', channelId: 'fc-social', sort: 6 },
     { id: 'fc-grw-par-s', departmentId: 'fc-growth', code: 'PAR_SPEND', label: 'Dépenses affiliation & partenaires', kind: 'channel_spend', channelId: 'fc-part', sort: 7 },
     { id: 'fc-grw-par-c', departmentId: 'fc-growth', code: 'PAR_CUST', label: 'Nouveaux leads affiliation', kind: 'channel_customers', channelId: 'fc-part', sort: 8 },
-    { id: 'fc-grw-pay', departmentId: 'fc-growth', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 9 },
+    // Masse salariale Growth saisie en lignes libres par ETP (comme Sales), voir la navette.
     { id: 'fc-grw-opex', departmentId: 'fc-growth', code: 'OPEX', label: 'Outils marketing & data', kind: 'opex', sort: 10 },
     // Ops / CS
     { id: 'fc-ops-cogs', departmentId: 'fc-ops', code: 'COGS_PROD', label: 'Traitement des déclarations (COGS)', kind: 'cogs', monthlyKey: 'saison_fiscale', sort: 1 },
     { id: 'fc-ops-exp', departmentId: 'fc-ops', code: 'EXPANSION', label: 'Cross-sell & upsell base installée', kind: 'expansion_mrr', sort: 2 },
     { id: 'fc-ops-churn', departmentId: 'fc-ops', code: 'CHURN', label: 'Objectif de churn mensuel', kind: 'churn_rate', sort: 3 },
-    { id: 'fc-ops-pay', departmentId: 'fc-ops', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 4 },
+    // Masse salariale Ops saisie en lignes libres par ETP (comme Sales), voir la navette.
     { id: 'fc-ops-opex', departmentId: 'fc-ops', code: 'OPEX', label: 'Outils support', kind: 'opex', sort: 5 },
-    // FA&P
-    { id: 'fc-fap-pay', departmentId: 'fc-fap', code: 'MS', label: 'Équipe existante (masse salariale)', kind: 'payroll', sort: 1 },
+    // FA&P (masse salariale en lignes libres par ETP, comme Sales)
     { id: 'fc-fap-opex', departmentId: 'fc-fap', code: 'OPEX', label: 'Frais généraux, assurances, conseils', kind: 'opex', sort: 2 },
   ],
   submissions: [
@@ -194,8 +193,12 @@ export const FINCOPILOT: SeedCompany = {
       status: 'submitted',
       lines: [
         { driverDefId: 'fc-tec-cogs', q: q(700, 710, 720, 720) },
-        { driverDefId: 'fc-tec-hc', q: qn(16, 17, 18, 18), unitCost: 8_200 },
         { driverDefId: 'fc-tec-opex', q: q(75, 75, 75, 75) },
+      ],
+      // Masse salariale en ligne libre : total identique a l'ancien headcount 16/17/18/18 ETP
+      // a 8 200 EUR/mois (16 x 3 x 8 200 = 393 600, etc.), donc la consolidation ne bouge pas.
+      customLines: [
+        { id: 'fc-tec-team', kind: 'payroll', label: 'Équipe Tech & Product', isNew: false, frequency: 'mensuel', q: qn(393_600, 418_200, 442_800, 442_800) },
       ],
     },
     {
@@ -238,8 +241,10 @@ export const FINCOPILOT: SeedCompany = {
         { driverDefId: 'fc-grw-soc-c', q: qn(380, 395, 400, 405) },
         { driverDefId: 'fc-grw-par-s', q: q(120, 128, 130, 132) },
         { driverDefId: 'fc-grw-par-c', q: qn(280, 300, 310, 320) },
-        { driverDefId: 'fc-grw-pay', q: q(175, 175, 175, 175) },
         { driverDefId: 'fc-grw-opex', q: q(60, 65, 65, 60) },
+      ],
+      customLines: [
+        { id: 'fc-grw-team-v1', kind: 'payroll', label: 'Équipe Growth', isNew: false, frequency: 'mensuel', q: q(175, 175, 175, 175) },
       ],
     },
     // Growth v2 : après arbitrage codir. SEA retravaillé au S1, enveloppe respectée.
@@ -256,8 +261,10 @@ export const FINCOPILOT: SeedCompany = {
         { driverDefId: 'fc-grw-soc-c', q: qn(380, 395, 400, 405) },
         { driverDefId: 'fc-grw-par-s', q: q(120, 128, 130, 132) },
         { driverDefId: 'fc-grw-par-c', q: qn(280, 300, 310, 320) },
-        { driverDefId: 'fc-grw-pay', q: q(175, 175, 175, 175) },
         { driverDefId: 'fc-grw-opex', q: q(50, 55, 55, 50) },
+      ],
+      customLines: [
+        { id: 'fc-grw-team-v2', kind: 'payroll', label: 'Équipe Growth', isNew: false, frequency: 'mensuel', q: q(175, 175, 175, 175) },
       ],
     },
     {
@@ -269,8 +276,10 @@ export const FINCOPILOT: SeedCompany = {
         { driverDefId: 'fc-ops-exp', q: q(36, 48, 57, 66) },
         // Objectif de churn a 1,3 %/mois, identique au taux de config : la consolidation ne bouge pas.
         { driverDefId: 'fc-ops-churn', q: qn(1.3, 1.3, 1.3, 1.3) },
-        { driverDefId: 'fc-ops-pay', q: q(200, 200, 200, 200) },
         { driverDefId: 'fc-ops-opex', q: q(25, 25, 25, 25) },
+      ],
+      customLines: [
+        { id: 'fc-ops-team', kind: 'payroll', label: 'Équipe Ops / CS', isNew: false, frequency: 'mensuel', q: q(200, 200, 200, 200) },
       ],
     },
     {
@@ -278,8 +287,10 @@ export const FINCOPILOT: SeedCompany = {
       version: 1,
       status: 'submitted',
       lines: [
-        { driverDefId: 'fc-fap-pay', q: q(190, 190, 190, 190) },
         { driverDefId: 'fc-fap-opex', q: q(120, 120, 120, 120) },
+      ],
+      customLines: [
+        { id: 'fc-fap-team', kind: 'payroll', label: 'Équipe FA&P', isNew: false, frequency: 'mensuel', q: q(190, 190, 190, 190) },
       ],
     },
   ],
