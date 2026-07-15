@@ -2,7 +2,7 @@ import { Badge } from '@/components/shell';
 import type { SubmissionRow, SubmissionStatusRow } from '@/lib/data';
 
 /**
- * Carte de statut de navette pour l'écran Consolidation.
+ * Carte de statut de navette pour l'écran Budget.
  * Purement présentationnel : tout vient des données déjà chargées par la page.
  *
  * Pictos : tracés à la main en SVG inline (aucune librairie d'icônes), trait fin

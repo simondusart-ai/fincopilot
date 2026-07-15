@@ -4,15 +4,15 @@ Préparation, avant la restitution : `npm run seed` pour remettre la démo à z�
 
 **0. Contexte (30 s).** Chez Cleany, je pilotais la campagne budgétaire par navettes Excel bilatérales avec chaque Head of : consolidation manuelle, aucune vision en temps réel. Navette est l'outil que j'aurais voulu avoir, et la première brique du processus budgétaire évoqué pour Nopillo.
 
-**1. La consolidation vivante (1 min 30).** Fenêtre CFO, dashboard FinCopilot : les cinq navettes soumises, le P&L mensuel N+1 reconstruit en direct, les KPIs (CA +40 %, breakeven en cours d'année, CAC moyen, runway). Trois alertes sorties toutes seules : SEA au-dessus du plafond de 515 € aux T1 et T2, NRR sous 100 % au T1. Ce sont exactement les seuils décidés en Sections 1 et 2 : la gouvernance proposée au codir est ici en production.
+**1. La consolidation vivante (1 min 30).** Fenêtre CFO, écran Budget FinCopilot : les cinq navettes soumises, le P&L mensuel N+1 reconstruit en direct, les KPIs (CA +40 %, breakeven en cours d'année, CAC moyen, runway). Trois alertes sorties toutes seules : SEA au-dessus du plafond de 515 € aux T1 et T2, NRR sous 100 % au T1. Ce sont exactement les seuils décidés en Sections 1 et 2 : la gouvernance proposée au codir est ici en production.
 
 **2. Chacun chez soi (1 min).** Fenêtre privée, compte Head of Growth : il ne voit que sa navette, pas de consolidation, pas les autres départements. Sécurité par ligne dans la base, pas un filtre d'affichage.
 
 **3. Un arbitrage en direct (2 min).** Côté Growth : créer une nouvelle version de la navette, gonfler les dépenses SEA, tenter une valeur négative : la soumission est refusée avec un message localisé (T par T). Corriger, soumettre. Côté CFO : recharger, le P&L bouge, l'alerte d'enveloppe apparaît. Principe énoncé à l'oral : une erreur de données bloque la consolidation, un dépassement de cadrage ne la bloque jamais, il se signale et s'arbitre.
 
-**4. Le diff, la réalité d'une campagne (1 min).** Page Versions : Growth v1 vers v2 (l'arbitrage pré-chargé du seed) : lignes modifiées, impact +660 K€ d'EBITDA et de trésorerie. C'est la trace chiffrée de chaque aller-retour budgétaire.
+**4. Le diff, la réalité d'une campagne (1 min).** Depuis Ma navette (Growth), le lien Comparer les versions (visible pour la direction dès deux versions) ouvre le comparateur pré-filtré sur le département : Growth v1 vers v2 (l'arbitrage pré-chargé du seed), lignes modifiées, impact +660 K€ d'EBITDA et de trésorerie. C'est la trace chiffrée de chaque aller-retour budgétaire.
 
-**5. La gouvernance est une donnée (45 s).** Réglages : passer le plafond SEA de 515 à 560 €, recharger le dashboard : les alertes CAC disparaissent. Le cadrage codir est une configuration, pas du code.
+**5. La gouvernance est une donnée (45 s).** Directement sur l'écran Budget, éditer en ligne le plafond de CAC du canal SEA de 515 à 560 € (crayon dans la section CAC par canal) : les alertes CAC disparaissent aussitôt, sans quitter l'écran ni recharger. Le CEO comme le CFO peuvent le faire, ainsi que les enveloppes de département : suivre une reco du comité en changeant un plafond en direct. Le cadrage codir est une configuration, pas du code.
 
 **6. Réutilisabilité (1 min).** Déconnexion, `cfo@hexafloor.demo` : autre société, trois départements, autres drivers, autres seuils, même code. Son budget déclenche runway sous seuil de gel et trésorerie négative : l'outil dit "budget non finançable en l'état".
 

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
@@ -635,6 +636,11 @@ export default function NavettePage() {
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="font-semibold text-ink">Suivi de la navette</h2>
               {latest && <Badge tone="muted">Version v{latest.version}</Badge>}
+              {canArbitrate && submissions.length >= 2 && (
+                <Link href={`/diff?dept=${effectiveDeptId}`} className="ml-auto text-sm font-semibold text-primary hover:underline">
+                  Comparer les versions
+                </Link>
+              )}
             </div>
             {events.length === 0 ? (
               <p className="mt-2 text-sm text-ink/60">Aucune version pour l’instant.</p>

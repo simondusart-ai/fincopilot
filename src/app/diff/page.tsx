@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, ErrorBox, Loading, Page, inputBase, usePortalData } from '@/components/shell';
 import { buildConsolidationInputs, toCompanyConfig, toSubmission } from '@/lib/data';
 import { diffSubmissions } from '@/lib/engine';
@@ -11,6 +11,13 @@ export default function DiffPage() {
   const [deptId, setDeptId] = useState<string | null>(null);
   const [vBefore, setVBefore] = useState<number | null>(null);
   const [vAfter, setVAfter] = useState<number | null>(null);
+
+  // Pre-filtrage sur un departement via ?dept=... (lien "Comparer les versions" de Ma navette).
+  // Lu cote client uniquement, sans useSearchParams (pas de Suspense requis pour le prerender).
+  useEffect(() => {
+    const dept = new URLSearchParams(window.location.search).get('dept');
+    if (dept) setDeptId(dept);
+  }, []);
 
   const effectiveDeptId = deptId ?? data?.departments[0]?.id ?? null;
   const versions = useMemo(

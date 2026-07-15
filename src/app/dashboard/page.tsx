@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, usePortalData } from '@/components/shell';
+import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { MonthlyChart } from '@/components/monthly-chart';
 import { NavetteStatusCard } from '@/components/navette-status-card';
 import { CollapsiblePnlTable, type PnlTableRow } from '@/components/pnl-table';
@@ -63,6 +63,24 @@ function SectionTitle({ id, children }: { id: string; children: React.ReactNode 
   return <h2 id={id} className="scroll-mt-6 text-lg font-semibold text-ink">{children}</h2>;
 }
 
+/** Petit crayon d'edition en ligne (cadrage : enveloppes, plafonds de CAC). */
+function PencilButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink/40 transition-colors hover:bg-card-soft hover:text-primary"
+    >
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </button>
+  );
+}
+
 export default function DashboardPage() {
   const { data, error, loading, reload } = usePortalData();
   const [exportMsg, setExportMsg] = useState<string | null>(null);
@@ -71,6 +89,11 @@ export default function DashboardPage() {
   const [resetArmed, setResetArmed] = useState(false);
   const [actuals, setActuals] = useState<ActualsData | null>(null);
   const [baselineKpiOpen, setBaselineKpiOpen] = useState(true);
+  // Edition en ligne du cadrage depuis l'ecran Budget (enveloppe d'un departement,
+  // plafond de CAC d'un canal). Une seule cellule editable a la fois.
+  const [editCell, setEditCell] = useState<{ kind: 'envelope' | 'cap'; id: string } | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [cadrageMsg, setCadrageMsg] = useState<string | null>(null);
 
   const result = useMemo(() => (data ? consolidate(buildConsolidationInputs(data)) : null), [data]);
 
@@ -279,6 +302,66 @@ export default function DashboardPage() {
     }
   }
 
+  const canEditCadrage = isLeader;
+
+  /** Ouvre l'edition d'une cellule de cadrage. L'enveloppe se saisit en k€, le plafond en €. */
+  function startEditCadrage(kind: 'envelope' | 'cap', id: string, current: number | null) {
+    setCadrageMsg(null);
+    setEditValue(current === null ? '' : String(kind === 'envelope' ? Math.round(current / 1000) : current));
+    setEditCell({ kind, id });
+  }
+
+  /** Enregistre l'enveloppe (departements) ou le plafond de CAC (canaux). Vide = aucune limite. */
+  async function saveCadrage() {
+    if (!editCell) return;
+    const raw = editValue.trim().replace(',', '.');
+    let value: number | null = null;
+    if (raw !== '') {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) {
+        setCadrageMsg('Valeur invalide : un nombre positif, ou vide pour aucune limite.');
+        return;
+      }
+      value = editCell.kind === 'envelope' ? Math.round(n * 1000) : n;
+    }
+    setBusy(true);
+    setCadrageMsg(null);
+    try {
+      const { error: e } =
+        editCell.kind === 'envelope'
+          ? await supabase.from('departments').update({ envelope: value }).eq('id', editCell.id)
+          : await supabase.from('channels').update({ cac_cap: value }).eq('id', editCell.id);
+      if (e) throw new Error(e.message);
+      setEditCell(null);
+      await reload();
+    } catch (e) {
+      setCadrageMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Champ d'edition en ligne : Entree enregistre, Echap annule, clic ailleurs annule.
+  const cadrageInput = (suffix: string) => (
+    <span className="inline-flex items-center justify-end gap-1">
+      <input
+        type="text"
+        inputMode="decimal"
+        autoFocus
+        value={editValue}
+        disabled={busy}
+        onChange={(e) => setEditValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); void saveCadrage(); }
+          else if (e.key === 'Escape') { setEditCell(null); setCadrageMsg(null); }
+        }}
+        onBlur={() => { if (!busy) setEditCell(null); }}
+        className={`w-20 text-right ${inputBase} bg-white`}
+      />
+      <span className="text-xs text-ink/40">{suffix}</span>
+    </span>
+  );
+
   // Tableau P&L (avec navettes) : détails, soldes surlignés et sous-lignes de ratio en %.
   const pnlRows: PnlRow[] = [
     { label: 'MRR fin de mois', kind: 'line', fn: (m) => M[m].mrrEnd },
@@ -437,7 +520,7 @@ export default function DashboardPage() {
     <Page data={data}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-ink">Consolidation budget {data.company.budget_year}</h1>
+          <h1 className="text-2xl font-bold text-ink">Budget {data.company.budget_year}</h1>
           <p className="mt-1 text-sm text-ink/60">
             Recalculée en direct à partir des dernières navettes soumises.
           </p>
@@ -721,7 +804,16 @@ export default function DashboardPage() {
                       <tr key={d.departmentId} className="border-b border-lav/60 last:border-0">
                         <td className="px-5 py-2.5 font-semibold text-ink">{d.name}</td>
                         <td className="px-5 py-2.5 text-right tabular-nums">{fmtKEur(d.annualCost)}</td>
-                        <td className="px-5 py-2.5 text-right tabular-nums">{d.envelope !== null ? fmtKEur(d.envelope) : '-'}</td>
+                        <td className="px-5 py-2.5 text-right tabular-nums">
+                          {editCell?.kind === 'envelope' && editCell.id === d.departmentId ? (
+                            cadrageInput('k€')
+                          ) : (
+                            <span className="inline-flex items-center justify-end gap-1">
+                              {d.envelope !== null ? fmtKEur(d.envelope) : '-'}
+                              {canEditCadrage && <PencilButton label="Modifier l’enveloppe" onClick={() => startEditCadrage('envelope', d.departmentId, d.envelope)} />}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-5 py-2.5 text-right">
                           {d.envelope === null ? (
                             <span className="text-ink/40">-</span>
@@ -740,6 +832,10 @@ export default function DashboardPage() {
                 </table>
               </div>
             </div>
+            {canEditCadrage && (
+              <p className="mt-2 text-xs text-ink/50">Enveloppe modifiable en ligne (crayon) : les alertes se recalculent aussitôt.</p>
+            )}
+            {cadrageMsg && editCell?.kind === 'envelope' && <p className="mt-2 text-sm text-red-600">{cadrageMsg}</p>}
           </section>
 
           {/* 8. CAC par canal et par trimestre */}
@@ -760,7 +856,16 @@ export default function DashboardPage() {
                       {channelOrder.map((ch) => (
                         <tr key={ch.id} className="border-b border-lav/60 last:border-0">
                           <td className="px-5 py-2 font-semibold text-ink">{ch.name}</td>
-                          <td className="px-5 py-2 text-right tabular-nums text-ink/60">{ch.cap === null ? '-' : fmtEur(ch.cap)}</td>
+                          <td className="px-5 py-2 text-right tabular-nums text-ink/60">
+                            {editCell?.kind === 'cap' && editCell.id === ch.id ? (
+                              cadrageInput('€')
+                            ) : (
+                              <span className="inline-flex items-center justify-end gap-1">
+                                {ch.cap === null ? '-' : fmtEur(ch.cap)}
+                                {canEditCadrage && <PencilButton label="Modifier le plafond" onClick={() => startEditCadrage('cap', ch.id, ch.cap)} />}
+                              </span>
+                            )}
+                          </td>
                           {[1, 2, 3, 4].map((q) => {
                             const cell = cacCell(ch.id, q);
                             const above = cell?.cac != null && ch.cap != null && cell.cac > ch.cap;
@@ -776,6 +881,10 @@ export default function DashboardPage() {
                   </table>
                 </div>
               </div>
+              {canEditCadrage && (
+                <p className="mt-2 text-xs text-ink/50">Plafond de CAC modifiable en ligne (crayon) : les alertes se recalculent aussitôt.</p>
+              )}
+              {cadrageMsg && editCell?.kind === 'cap' && <p className="mt-2 text-sm text-red-600">{cadrageMsg}</p>}
             </section>
           )}
         </>

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import { loadPortalData, type PortalData } from '@/lib/data';
 import { Logo } from '@/components/logo';
@@ -84,15 +84,22 @@ export function Header({ data }: { data: PortalData | null }) {
   const dept = data?.departments.find((d) => d.id === data?.profile.department_id);
   const roleLabel = role === 'cfo' ? 'CFO' : role === 'ceo' ? 'CEO' : dept ? `Head of ${dept.name}` : 'Head of';
 
-  const links = [
-    // Le CFO et le CEO consultent toutes les navettes ; le métier n'a que la sienne.
-    { href: '/navette', label: isLeader ? 'Navettes' : 'Ma navette', show: true },
-    { href: '/dashboard', label: 'Consolidation', show: isLeader },
-    { href: '/pilotage', label: 'Pilotage', show: true },
+  // Les trois etapes du processus. Le Budget est reserve a la direction : pour un Head of,
+  // l'etape reste visible mais desactivee (la numerotation 1-2-3 reste lisible).
+  const steps = [
+    { n: 1, href: '/navette', label: isLeader ? 'Navettes' : 'Ma navette', enabled: true },
+    { n: 2, href: '/dashboard', label: 'Budget', enabled: isLeader },
+    { n: 3, href: '/pilotage', label: 'Pilotage', enabled: true },
+  ];
+  // Onglets support, hors processus. Diff retire de la nav (accessible depuis Ma navette).
+  const support = [
     { href: '/business-case', label: 'Business case', show: true },
-    { href: '/diff', label: 'Versions', show: isLeader },
     { href: '/reglages', label: 'Réglages', show: role === 'cfo' },
   ].filter((l) => l.show);
+  const pill = (active: boolean, enabled = true) =>
+    `rounded-full px-3 py-1.5 text-sm font-semibold transition-colors ${
+      active ? 'bg-primary text-white' : enabled ? 'text-ink hover:bg-card-soft' : 'text-ink/30'
+    }`;
 
   return (
     <header className="mx-auto w-full max-w-6xl px-4 pt-4">
@@ -105,22 +112,35 @@ export function Header({ data }: { data: PortalData | null }) {
             {data.company.name} · budget {data.company.budget_year}
           </span>
         )}
-        <nav className="ml-1 flex items-center gap-1">
-          {links.map((l) => {
-            const active = pathname === l.href;
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors ${
-                  active ? 'bg-primary text-white' : 'text-ink hover:bg-card-soft'
-                }`}
-              >
+        <div className="ml-1 flex flex-wrap items-center gap-1">
+          <nav className="flex items-center gap-0.5" aria-label="Étapes du processus">
+            {steps.map((s, i) => {
+              const active = pathname === s.href;
+              return (
+                <Fragment key={s.href}>
+                  {i > 0 && <span className="px-0.5 text-ink/30" aria-hidden="true">›</span>}
+                  {s.enabled ? (
+                    <Link href={s.href} className={pill(active)}>
+                      <span className="tabular-nums">{s.n}.</span> {s.label}
+                    </Link>
+                  ) : (
+                    <span className={pill(false, false)} aria-disabled="true" title="Réservé à la direction">
+                      <span className="tabular-nums">{s.n}.</span> {s.label}
+                    </span>
+                  )}
+                </Fragment>
+              );
+            })}
+          </nav>
+          <span className="mx-1 hidden h-5 w-px bg-lav sm:block" aria-hidden="true" />
+          <nav className="flex items-center gap-0.5" aria-label="Outils">
+            {support.map((l) => (
+              <Link key={l.href} href={l.href} className={pill(pathname === l.href)}>
                 {l.label}
               </Link>
-            );
-          })}
-        </nav>
+            ))}
+          </nav>
+        </div>
         <div className="ml-auto flex items-center gap-3">
           {data && (
             <span className="hidden text-right leading-tight sm:block">
