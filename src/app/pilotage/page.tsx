@@ -49,11 +49,11 @@ type MetricRow = {
 const METRIC_ROWS: MetricRow[] = [
   { label: 'MRR fin de mois (k€)', group: 'croissance', solde: true, fmt: (r) => kK(r.mrrEnd) },
   { label: 'croissance m/m', group: 'croissance', sub: true, fmt: (r) => (r.mrrGrowthMoM === null ? '' : signedPct(r.mrrGrowthMoM)) },
+  { label: 'Base clients', group: 'croissance', fmt: (r) => r.baseEnd.toLocaleString('fr-FR') },
   { label: 'Nouveaux clients', group: 'croissance', fmt: (r) => r.newClients.toLocaleString('fr-FR') },
   { label: 'Clients churnés', group: 'croissance', fmt: (r) => r.churnedClients.toLocaleString('fr-FR') },
   { label: 'churn logo (%)', group: 'croissance', sub: true, fmt: (r) => (r.monthlyLogoChurn === null ? '' : fmtPct(r.monthlyLogoChurn, 1)) },
   { label: 'Ajouts nets', group: 'croissance', fmt: (r) => r.netAdds.toLocaleString('fr-FR') },
-  { label: 'ARPA implicite (€)', group: 'croissance', fmt: (r) => (r.arpaImplicit === null ? '' : fmtEur(r.arpaImplicit)) },
   { label: 'NRR', group: 'croissance', fmt: (r) => (r.nrr === null ? '' : fmtPct(r.nrr)), breach: (r) => r.nrr !== null && r.nrr < 1 },
   { label: 'CAC moyen (€)', group: 'rentabilite', fmt: (r) => (r.cacAvg === null ? '' : fmtEur(r.cacAvg)), breach: (r, c) => r.cacAvg !== null && c.target !== null && r.cacAvg > c.target },
   { label: 'Marge de contribution (%)', group: 'rentabilite', fmt: (r) => (r.contributionMarginPct === null ? '' : fmtPct(r.contributionMarginPct)), breach: (r) => r.contributionMarginPct !== null && r.contributionMarginPct < 0 },
