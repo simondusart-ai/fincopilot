@@ -96,61 +96,86 @@ export function Header({ data }: { data: PortalData | null }) {
     { href: '/business-case', label: 'Business case', show: true },
     { href: '/reglages', label: 'Réglages', show: role === 'cfo' },
   ].filter((l) => l.show);
-  const pill = (active: boolean, enabled = true) =>
-    `whitespace-nowrap rounded-full px-2.5 py-1.5 text-sm font-semibold transition-colors ${
-      active ? 'bg-primary text-white' : enabled ? 'text-ink hover:bg-card-soft' : 'text-ink/30'
-    }`;
+  // Etape active detectee par l'URL. Les etapes avant sont "cochees", celles apres "a venir".
+  const activeIndex = steps.findIndex((s) => pathname === s.href);
+  // Base commune d'une etape du stepper (toujours sur une ligne).
+  const stepBase = 'flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-sm transition-colors';
+  const circleBase = 'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold';
 
   return (
     <header className="mx-auto w-full max-w-6xl px-4 pt-4">
-      {/* Header sur UNE ligne pour tous les roles : jamais de flex-wrap ; le groupe d'onglets
-          scrolle horizontalement sous 1024 px plutot que de passer a la ligne. */}
-      <div className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm">
-        <Link href="/" aria-label="Navette, accueil" className="shrink-0">
-          <Logo size="sm" />
-        </Link>
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          <nav className="flex shrink-0 items-center gap-0.5" aria-label="Étapes du processus">
+      {/* Barre globale : blanche, radius genereux, ombre legere, sur le fond de page.
+          Une seule ligne pour tous les roles ; le groupe logo + stepper scrolle
+          horizontalement en largeur reduite plutot que de wrapper ou de chevaucher. */}
+      <div className="flex items-center gap-4 rounded-3xl bg-white px-4 py-2.5 shadow-sm">
+        <div className="flex min-w-0 flex-1 items-center gap-4 overflow-x-auto">
+          <Link href="/" aria-label="Navette, accueil" className="shrink-0">
+            <Logo size="sm" />
+          </Link>
+          {/* Stepper : les trois etapes du parcours dans un conteneur pill clair. */}
+          <nav className="flex shrink-0 items-center gap-0.5 rounded-full bg-card-soft p-1" aria-label="Étapes du processus">
             {steps.map((s, i) => {
               const active = pathname === s.href;
+              const state = !s.enabled ? 'disabled' : active ? 'active' : activeIndex >= 0 && i < activeIndex ? 'before' : 'after';
+              const inner = (
+                <>
+                  {state === 'before' ? (
+                    <span className={`${circleBase} bg-mint text-ink`}>
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M5 12l5 5L20 7" />
+                      </svg>
+                    </span>
+                  ) : state === 'active' ? (
+                    <span className={`${circleBase} bg-white/20 text-white`}>{s.n}</span>
+                  ) : (
+                    <span className={`${circleBase} border border-lav bg-white text-ink/50`}>{s.n}</span>
+                  )}
+                  <span className={state === 'active' ? 'font-bold text-white' : 'font-medium text-ink'}>{s.label}</span>
+                </>
+              );
               return (
                 <Fragment key={s.href}>
-                  {i > 0 && <span className="px-0.5 text-ink/30" aria-hidden="true">›</span>}
-                  {s.enabled ? (
-                    <Link href={s.href} className={pill(active)}>
-                      <span className="tabular-nums">{s.n}.</span> {s.label}
-                    </Link>
-                  ) : (
-                    <span className={pill(false, false)} aria-disabled="true" title="Réservé à la direction">
-                      <span className="tabular-nums">{s.n}.</span> {s.label}
+                  {i > 0 && <span className="px-1 text-ink/30" aria-hidden="true">›</span>}
+                  {state === 'disabled' ? (
+                    <span className={`${stepBase} cursor-default font-medium text-ink opacity-50`} aria-disabled="true" title="Réservé à la direction">
+                      {inner}
                     </span>
+                  ) : state === 'active' ? (
+                    <Link href={s.href} className={`${stepBase} bg-primary hover:bg-accent`}>{inner}</Link>
+                  ) : (
+                    <Link href={s.href} className={`${stepBase} hover:bg-lav`}>{inner}</Link>
                   )}
                 </Fragment>
               );
             })}
           </nav>
-          <span className="mx-1 hidden h-5 w-px shrink-0 bg-lav sm:block" aria-hidden="true" />
-          <nav className="flex shrink-0 items-center gap-0.5" aria-label="Outils">
+        </div>
+
+        {/* Bloc de droite : liens secondaires, identite, deconnexion. */}
+        <div className="flex shrink-0 items-center gap-4">
+          <nav className="flex items-center gap-1" aria-label="Outils">
             {support.map((l) => (
-              <Link key={l.href} href={l.href} className={pill(pathname === l.href)}>
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-card-soft ${pathname === l.href ? 'bg-card-soft' : ''}`}
+              >
                 {l.label}
               </Link>
             ))}
           </nav>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
           {data && (
-            <span className="hidden text-right leading-tight sm:block">
-              <span className="block text-sm font-semibold text-ink">{data.profile.full_name}</span>
-              <span className="block text-xs text-ink/50">{roleLabel}</span>
-            </span>
+            <div className="hidden flex-col items-end leading-tight sm:flex">
+              <span className="whitespace-nowrap text-sm font-bold text-ink">{data.profile.full_name}</span>
+              <span className="whitespace-nowrap text-xs text-ink/50">{roleLabel}</span>
+            </div>
           )}
           <button
             onClick={async () => {
               await getSupabase().auth.signOut();
               router.replace('/login');
             }}
-            className={btnSecondary}
+            className="whitespace-nowrap rounded-full border border-primary bg-white px-4 py-1.5 text-sm font-semibold text-primary transition-colors hover:bg-primary hover:text-white"
           >
             Déconnexion
           </button>
