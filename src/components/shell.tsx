@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import { loadPortalData, type PortalData } from '@/lib/data';
+import { Logo } from '@/components/logo';
 
 export function usePortalData() {
   const [data, setData] = useState<PortalData | null>(null);
@@ -96,8 +97,8 @@ export function Header({ data }: { data: PortalData | null }) {
   return (
     <header className="mx-auto w-full max-w-6xl px-4 pt-4">
       <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-white px-5 py-3 shadow-sm">
-        <Link href="/" className="text-lg font-bold text-primary">
-          Navette
+        <Link href="/" aria-label="Navette, accueil">
+          <Logo size="sm" />
         </Link>
         {data && (
           <span className="hidden border-l border-lav pl-4 text-sm text-ink/50 md:inline">

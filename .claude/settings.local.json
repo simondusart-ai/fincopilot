@@ -28,7 +28,11 @@
       "Bash(npm run *)",
       "Bash(git commit *)",
       "Bash(git push *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(command -v rsvg-convert magick convert inkscape)",
+      "Bash(node -e \"try{require.resolve\\('sharp'\\);console.log\\('sharp yes'\\)}catch{console.log\\('no sharp'\\)}\")",
+      "Bash(node -e \"const sharp=require\\('sharp'\\);const fs=require\\('fs'\\);sharp\\(Buffer.from\\(fs.readFileSync\\('preview.svg'\\)\\)\\).png\\(\\).toFile\\('preview.png'\\).then\\(i=>console.log\\('ok',i.width,i.height\\)\\).catch\\(e=>console.error\\(e.message\\)\\)\")",
+      "Bash(node -e \"const sharp=require\\('sharp'\\);const fs=require\\('fs'\\);const dir='C:/Users/PC/AppData/Local/Temp/claude/C--Users-PC-navette/91c80baa-88b0-438a-882b-0f5f8876b44e/scratchpad';sharp\\(fs.readFileSync\\(dir+'/preview.svg'\\),{density:150}\\).png\\(\\).toFile\\(dir+'/preview.png'\\).then\\(i=>console.log\\('ok',i.width,i.height\\)\\).catch\\(e=>console.error\\('ERR',e.message\\)\\)\")"
     ]
   }
 }
