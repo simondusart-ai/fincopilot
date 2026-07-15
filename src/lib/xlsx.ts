@@ -41,7 +41,7 @@ export async function exportConsolidation(
     ['Marge brute', (m) => result.months[m].grossMargin],
     ['Coûts S&M', (m) => -result.months[m].smSpend],
     ['Marge de contribution', (m) => result.months[m].contributionMargin],
-    ['Salaires', (m) => -result.months[m].payrollTotal],
+    ['Autres salaires', (m) => -result.months[m].payrollTotal],
     ['Autres opex', (m) => -result.months[m].opexTotal],
     ['EBITDA', (m) => result.months[m].ebitda],
     ['Capex', (m) => -result.months[m].capexTotal],

@@ -279,7 +279,7 @@ export default function DashboardPage() {
     { label: 'Coûts S&M', kind: 'line', fn: (m) => -M[m].smSpend },
     { label: 'Marge de contribution', kind: 'solde', fn: (m) => M[m].contributionMargin },
     { label: 'Marge de contribution (%)', kind: 'pct', fn: (m) => (M[m].contributionMarginPct ?? NaN) },
-    { label: 'Salaires', kind: 'line', fn: (m) => -M[m].payrollTotal },
+    { label: 'Autres salaires', kind: 'line', fn: (m) => -M[m].payrollTotal },
     { label: 'Autres opex', kind: 'line', fn: (m) => -M[m].opexTotal },
     { label: 'EBITDA', kind: 'solde', fn: (m) => M[m].ebitda },
     { label: 'Marge sur EBITDA (%)', kind: 'pct', fn: (m) => (M[m].revenue ? M[m].ebitda / M[m].revenue : NaN) },
