@@ -113,17 +113,15 @@ export function MonthlyChart({ months }: { months: MonthRow[] }) {
         </svg>
       </div>
 
-      {/* Légende */}
+      {/* Légende : deux entrées. Les couleurs positif/négatif des barres restent visibles
+          sur le graphique, mais sans entrée de légende dédiée. */}
       <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-ink/70">
         <span className="inline-flex items-center gap-2">
-          <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> EBITDA positif (k€, échelle gauche)
-        </span>
-        <span className="inline-flex items-center gap-2">
-          <span className="inline-block h-3 w-3 rounded-sm bg-lav" /> EBITDA négatif (k€, échelle gauche)
+          <span className="inline-block h-3 w-3 rounded-sm bg-primary" /> EBITDA (K€, échelle de gauche)
         </span>
         <span className="inline-flex items-center gap-2">
           <span className="inline-block h-0.5 w-4 bg-ink align-middle" />
-          <span className="-ml-3 inline-block h-1.5 w-1.5 rounded-full bg-ink" /> Solde de trésorerie fin de mois (k€, échelle droite)
+          <span className="-ml-3 inline-block h-1.5 w-1.5 rounded-full bg-ink" /> Solde de trésorerie (K€, échelle de droite)
         </span>
       </div>
     </div>

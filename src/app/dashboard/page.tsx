@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, usePortalData } from '@/components/shell';
 import { MonthlyChart } from '@/components/monthly-chart';
 import { NavetteStatusCard } from '@/components/navette-status-card';
+import { CollapsiblePnlTable, type PnlTableRow } from '@/components/pnl-table';
 import { getSupabase } from '@/lib/supabase';
 import { buildConsolidationInputs, loadActuals, toChannel, toCompanyConfig, toDepartment, toDriverDef } from '@/lib/data';
 import type { ActualsData, BudgetMode, SubmissionRow } from '@/lib/data';
 import { consolidate, projectBaseline, simulateRound } from '@/lib/engine';
-import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths, fmtPct } from '@/lib/format';
+import { fmtEur, fmtKEur, fmtMonths } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
 
 // Ligne de tableau mensuel : 'line' = détail, 'solde' = ligne surlignée (fond lavande),
@@ -18,6 +19,47 @@ interface PnlRow {
   label: string;
   kind: RowKind;
   fn: (m: number) => number;
+}
+
+// Carte KPI attenuee : la meme mesure, mais pour la projection SANS navettes. Plus petite,
+// fond card-soft, texte estompe, avec le chip d'impact des navettes (delta avec - sans).
+function MutedKpi({
+  title,
+  value,
+  chip,
+}: {
+  title: string;
+  value: string;
+  chip: { text: string; negative: boolean };
+}) {
+  return (
+    <div className="rounded-2xl bg-card-soft p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/50">{title}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums text-ink/60">{value}</p>
+      <span
+        className={`mt-2 inline-block rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold ${chip.negative ? 'text-red-600' : 'text-ink/50'}`}
+      >
+        impact navettes : {chip.text}
+      </span>
+    </div>
+  );
+}
+
+type KpiFormat = 'amount' | 'months' | 'cac';
+interface KpiDef {
+  title: string;
+  format: KpiFormat;
+  withRaw: number | null;
+  sansRaw: number | null;
+  mainValue: string;
+  mainTone?: 'default' | 'bad';
+  mainHint?: string;
+  mainDot?: boolean;
+}
+
+/** Titre de section homogène, cible des ancres de la mini-navigation. */
+function SectionTitle({ id, children }: { id: string; children: React.ReactNode }) {
+  return <h2 id={id} className="scroll-mt-6 text-lg font-semibold text-ink">{children}</h2>;
 }
 
 export default function DashboardPage() {
@@ -226,7 +268,7 @@ export default function DashboardPage() {
     }
   }
 
-  // Tableau P&L : détails, lignes de solde surlignées et sous-lignes de marge en %.
+  // Tableau P&L (avec navettes) : détails, soldes surlignés et sous-lignes de ratio en %.
   const pnlRows: PnlRow[] = [
     { label: 'MRR fin de mois', kind: 'line', fn: (m) => M[m].mrrEnd },
     { label: 'Revenus non récurrents', kind: 'line', fn: (m) => M[m].otherRevenue },
@@ -244,6 +286,92 @@ export default function DashboardPage() {
     { label: 'Capex', kind: 'line', fn: (m) => -M[m].capexTotal },
   ];
 
+  // Convention "Total année", strictement alignée sur l'export xlsx : les flux somment
+  // les douze mois, les stocks (MRR, Trésorerie) prennent décembre, les ratios prennent
+  // décembre (marge) ou la valeur d'année (runway, géré à part avec minRunway).
+  const rangeMonths = (fn: (m: number) => number): number[] => Array.from({ length: 12 }, (_, m) => fn(m));
+  const isStockLabel = (label: string) => label.startsWith('MRR') || label.startsWith('Trésorerie');
+
+  const withPnlRows: PnlTableRow[] = result.ok
+    ? pnlRows.map((r) => {
+        const months = rangeMonths(r.fn);
+        const annual = r.kind === 'pct' ? r.fn(11) : isStockLabel(r.label) ? months[11] : months.reduce((a, b) => a + b, 0);
+        return {
+          label: r.label,
+          format: r.kind === 'pct' ? 'pct' : 'amount',
+          strong: r.kind === 'solde',
+          muted: r.kind === 'pct',
+          months,
+          annual,
+        };
+      })
+    : [];
+
+  const withCashRows: PnlTableRow[] = result.ok
+    ? [
+        { label: 'Solde de trésorerie fin de période (k€)', format: 'amount', strong: true, months: M.map((r) => r.cash), annual: M[11].cash },
+        { label: 'Runway (mois)', format: 'months', muted: true, months: M.map((r) => r.runwayMonths), annual: result.totals!.minRunway },
+      ]
+    : [];
+
+  // Projection sans navettes (baseline) : reconduction définie dans engine/baseline.ts.
+  const bm = baseline?.res.months ?? [];
+  const baselinePnlRows: PnlTableRow[] = baseline
+    ? [
+        { label: 'MRR fin de mois', format: 'amount', months: bm.map((x) => x.mrrEnd), annual: bm[11].mrrEnd },
+        { label: 'Revenu', format: 'amount', months: bm.map((x) => x.revenue), annual: bm.reduce((a, x) => a + x.revenue, 0) },
+        { label: 'Marge brute', format: 'amount', strong: true, months: bm.map((x) => x.grossMargin), annual: bm.reduce((a, x) => a + x.grossMargin, 0) },
+        { label: 'Coûts fixes reconduits', format: 'amount', months: bm.map((x) => -x.fixedCosts), annual: -baseline.res.annualFixedCosts },
+        { label: 'EBITDA', format: 'amount', strong: true, months: bm.map((x) => x.ebitda), annual: bm.reduce((a, x) => a + x.ebitda, 0) },
+      ]
+    : [];
+  const baselineCashRows: PnlTableRow[] = baseline
+    ? [
+        { label: 'Solde de trésorerie fin de période (k€)', format: 'amount', strong: true, months: bm.map((x) => x.cash), annual: bm[11].cash },
+        { label: 'Runway (mois)', format: 'months', muted: true, months: bm.map((x) => x.runwayMonths), annual: baseline.res.totals.minRunway },
+      ]
+    : [];
+
+  // Six KPIs comparables (avec navettes / sans navettes). La projection sans navettes n'a
+  // pas de CAC (aucun canal modélisé) : sa carte et son chip d'impact restent en n.a.
+  const kpiDefs: KpiDef[] = result.ok
+    ? [
+        { title: "MRR fin d'année", format: 'amount', withRaw: result.totals!.mrrEnd, sansRaw: baseline?.res.totals.mrrEnd ?? null, mainValue: fmtKEur(result.totals!.mrrEnd) },
+        {
+          title: 'EBITDA annuel',
+          format: 'amount',
+          withRaw: result.totals!.ebitda,
+          sansRaw: baseline?.res.totals.ebitda ?? null,
+          mainValue: `${result.totals!.ebitda >= 0 ? '+' : ''}${fmtKEur(result.totals!.ebitda)}`,
+          mainTone: result.totals!.ebitda < 0 ? 'bad' : 'default',
+          mainDot: result.totals!.ebitda >= 0,
+        },
+        { title: "Trésorerie fin d'année", format: 'amount', withRaw: result.totals!.endCash, sansRaw: baseline?.res.totals.endCash ?? null, mainValue: fmtKEur(result.totals!.endCash), mainTone: result.totals!.endCash < 0 ? 'bad' : 'default' },
+        {
+          title: 'Runway',
+          format: 'months',
+          withRaw: result.totals!.minRunway,
+          sansRaw: baseline?.res.totals.minRunway ?? null,
+          mainValue: fmtMonths(result.totals!.minRunway),
+          mainTone: result.totals!.minRunway !== null && result.totals!.minRunway < Number(data.company.runway_freeze_months) ? 'bad' : 'default',
+          mainHint: `Seuils : vigilance ${data.company.runway_vigilance_months} mois, gel ${data.company.runway_freeze_months} mois`,
+        },
+        { title: 'CAC moyen', format: 'cac', withRaw: result.totals!.blendedCac, sansRaw: null, mainValue: result.totals!.blendedCac !== null ? fmtEur(result.totals!.blendedCac) : 'n.a.', mainHint: result.totals!.grossPaybackMonths !== null ? `Payback brut ${result.totals!.grossPaybackMonths.toFixed(1)} mois` : undefined },
+        { title: 'Revenu', format: 'amount', withRaw: result.totals!.revenue, sansRaw: baseline?.res.totals.revenue ?? null, mainValue: fmtKEur(result.totals!.revenue) },
+      ]
+    : [];
+
+  const kpiMutedValue = (d: KpiDef): string =>
+    d.format === 'cac' || d.sansRaw === null ? 'n.a.' : d.format === 'months' ? fmtMonths(d.sansRaw) : fmtKEur(d.sansRaw);
+  const kpiChip = (d: KpiDef): { text: string; negative: boolean } => {
+    if (d.format === 'cac' || d.sansRaw === null || d.withRaw === null) return { text: 'n.a.', negative: false };
+    const delta = d.withRaw - d.sansRaw;
+    if (d.format === 'months') {
+      return { text: `${delta >= 0 ? '+' : ''}${delta.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} mois`, negative: delta < 0 };
+    }
+    return { text: `${delta >= 0 ? '+' : ''}${fmtKEur(delta)}`, negative: delta < 0 };
+  };
+
   // Pivot des CAC par canal : canaux en lignes, trimestres en colonnes.
   const channelOrder: { id: string; name: string; cap: number | null }[] = [];
   const seenChannel = new Set<string>();
@@ -255,7 +383,24 @@ export default function DashboardPage() {
   }
   const cacCell = (id: string, q: number) => result.channelQuarters.find((c) => c.channelId === id && c.quarter === q) ?? null;
 
-  const pctCell = (v: number) => (Number.isFinite(v) ? fmtPct(v) : 'n.a.');
+  // Mini-navigation d'ancres : uniquement les sections réellement rendues.
+  const okNav: [string, string][] = [
+    ['navettes', 'Navettes'],
+    ['kpis', 'Indicateurs'],
+    ['alertes', 'Alertes'],
+    ['pnl', 'P&L'],
+    ['tresorerie', 'Trésorerie'],
+    ['graphique', 'Graphique'],
+    ['contribution', 'Départements'],
+  ];
+  if (channelOrder.length > 0) okNav.push(['cac', 'CAC']);
+  const navItems: [string, string][] = result.ok
+    ? okNav
+    : [['navettes', 'Navettes'], ...(baseline ? ([['kpis', 'Indicateurs'], ['pnl', 'P&L'], ['tresorerie', 'Trésorerie']] as [string, string][]) : [])];
+
+  const baselineIntro = baseline
+    ? `La projection sans navettes reconduit le budget ${baseline.prevYear} : le MRR de fin ${baseline.prevYear} s’érode du churn, la marge brute reste au taux de cadrage et le socle de coûts fixes de ${baseline.prevYear} est reconduit.`
+    : '';
 
   return (
     <Page data={data}>
@@ -265,6 +410,11 @@ export default function DashboardPage() {
           <p className="mt-1 text-sm text-ink/60">
             Recalculée en direct à partir des dernières navettes soumises.
           </p>
+          <nav className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/50">
+            {navItems.map(([id, label]) => (
+              <a key={id} href={`#${id}`} className="transition-colors hover:text-ink">{label}</a>
+            ))}
+          </nav>
         </div>
         {result.ok && (
           <button
@@ -283,7 +433,7 @@ export default function DashboardPage() {
       </div>
       {exportMsg && <p className="mt-2 text-sm text-red-600">{exportMsg}</p>}
 
-      {/* Campagne budgétaire : ouverture et remise à zéro, réservées à la direction */}
+      {/* Campagne budgétaire : ouverture, remise à zéro et simulation, réservées à la direction */}
       {isLeader && (
         <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center gap-3">
@@ -358,181 +508,110 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Statut des navettes : une carte par département, cinq par rangée en grand écran */}
-      <div className="mt-6">
-        <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Navettes reçues</p>
+      {/* 1. Navettes reçues : une carte par département */}
+      <section className="mt-8">
+        <SectionTitle id="navettes">Navettes reçues</SectionTitle>
         <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           {data.departments.map((d) => (
             <NavetteStatusCard key={d.id} code={d.code} name={d.name} submission={latestByDept.get(d.id) ?? null} />
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* Scénario de reconduction : le P&L si aucune action n'est prise */}
-      {baseline && (
-        <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-          <div className="px-5 pt-5">
-            <h2 className="font-semibold text-ink">Projection du P&amp;L {data.company.budget_year}</h2>
-          </div>
-
-          {/* Commentaire dynamique : il suit l'avancement de la campagne */}
-          {missingCount > 0 && (
-            <div className="mx-5 mt-4 rounded-xl bg-peach px-4 py-3 text-sm text-ink">
-              {submittedCount === 0
-                ? `Aucune navette soumise : voici le budget reconduit, tel qu'il serait sans aucune action (${missingCount} navette${missingCount > 1 ? 's' : ''} attendue${missingCount > 1 ? 's' : ''}).`
-                : `${submittedCount} navette${submittedCount > 1 ? 's' : ''} soumise${submittedCount > 1 ? 's' : ''} sur ${data.departments.length}, ${missingCount} en attente. Tant que la consolidation n'est pas complète, seule cette projection à budget inchangé est disponible.`}
-            </div>
-          )}
-
-          <div className="mt-4 grid grid-cols-2 gap-4 px-5 lg:grid-cols-5">
-            <Card title="MRR fin d'année" value={fmtKEur(baseline.res.totals.mrrEnd)} tone="bad" hint="Érodé par le churn" />
-            <Card title="Revenu" value={fmtKEur(baseline.res.totals.revenue)} />
-            <Card
-              title="EBITDA"
-              value={fmtKEur(baseline.res.totals.ebitda)}
-              tone={baseline.res.totals.ebitda < 0 ? 'bad' : 'default'}
-              hint={`${baseline.prevYear} réalisé : ${fmtKEur(baseline.prevYearEbitda)}`}
-            />
-            <Card
-              title="Trésorerie fin d'année"
-              value={fmtKEur(baseline.res.totals.endCash)}
-              tone={baseline.res.totals.endCash < 0 ? 'bad' : 'default'}
-            />
-            <Card
-              title="Runway"
-              value={fmtMonths(baseline.res.totals.minRunway)}
-              tone={
-                baseline.res.totals.minRunway !== null &&
-                baseline.res.totals.minRunway < Number(data.company.runway_freeze_months)
-                  ? 'bad'
-                  : 'default'
-              }
-            />
-          </div>
-
-          {/* Ce que le budget apporte face a l'inaction : le chiffre qui justifie la campagne. */}
-          {result.ok && (
-            <div className="mx-5 mt-4 rounded-xl bg-card-soft px-4 py-3 text-sm text-ink">
-              Le budget soumis apporte{' '}
-              <span className="font-semibold tabular-nums">
-                {result.totals!.ebitda - baseline.res.totals.ebitda >= 0 ? '+' : ''}
-                {fmtKEur(result.totals!.ebitda - baseline.res.totals.ebitda)}
-              </span>{' '}
-              d&apos;EBITDA et{' '}
-              <span className="font-semibold tabular-nums">
-                {result.totals!.endCash - baseline.res.totals.endCash >= 0 ? '+' : ''}
-                {fmtKEur(result.totals!.endCash - baseline.res.totals.endCash)}
-              </span>{' '}
-              de trésorerie de fin d&apos;année, face à l&apos;inaction.
-            </div>
-          )}
-
-          <details className="px-5 pb-5 pt-4">
-            <summary className="cursor-pointer text-sm font-semibold text-primary">Voir le détail mensuel</summary>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full whitespace-nowrap text-sm">
-                <thead>
-                  <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                    <th className="sticky left-0 z-10 bg-white px-3 py-3 font-semibold">Ligne (k€)</th>
-                    {MONTH_LABELS.map((m) => (<th key={m} className="px-3 py-3 text-right font-semibold">{m}</th>))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {([
-                    ['MRR fin de mois', (i: number) => baseline.res.months[i].mrrEnd, false],
-                    ['Revenu', (i: number) => baseline.res.months[i].revenue, false],
-                    ['Marge brute', (i: number) => baseline.res.months[i].grossMargin, false],
-                    ['Coûts fixes reconduits', (i: number) => -baseline.res.months[i].fixedCosts, false],
-                    ['EBITDA', (i: number) => baseline.res.months[i].ebitda, true],
-                    ['Trésorerie', (i: number) => baseline.res.months[i].cash, true],
-                  ] as Array<[string, (i: number) => number, boolean]>).map(([label, fn, strong]) => (
-                    <tr key={label} className={strong ? 'bg-lav' : 'border-b border-lav/60'}>
-                      <td className={`sticky left-0 z-10 px-3 py-1.5 ${strong ? 'bg-lav font-semibold' : 'bg-white'}`}>{label}</td>
-                      {MONTH_LABELS.map((_, i) => {
-                        const v = fn(i);
-                        return (
-                          <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${v < 0 ? 'text-red-600' : ''} ${strong ? 'font-semibold' : ''}`}>
-                            {Math.round(v / 1000).toLocaleString('fr-FR')}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                  <tr>
-                    <td className="sticky left-0 z-10 bg-white px-3 py-1.5 italic text-ink/50">Runway (mois)</td>
-                    {baseline.res.months.map((r) => (
-                      <td key={r.month} className="px-3 py-1.5 text-right italic tabular-nums text-ink/50">
-                        {r.runwayMonths === null ? 'n.a.' : r.runwayMonths.toFixed(1)}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-3 text-xs text-ink/50">
-              Le socle fixe reconduit ({fmtKEur(baseline.res.annualFixedCosts)}) est calibré sur {baseline.prevYear} :
-              coûts totaux moins les coûts variables impliqués par le taux de marge. Sans cette calibration, reconduire
-              les coûts tout en appliquant une marge brute compterait deux fois les coûts variables.
-            </p>
-          </details>
-        </div>
-      )}
-
-      {/* Contrôles bloquants : le moteur refuse de consolider */}
       {!result.ok ? (
-        <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-5">
-          <h2 className="font-semibold text-red-700">
-            Consolidation refusée : {result.blocking.length} contrôle(s) bloquant(s)
-          </h2>
-          <ul className="mt-3 space-y-2 text-sm text-red-700">
-            {result.blocking.map((a, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="rounded-full border border-red-200 bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-600">
-                  {a.code}
-                </span>
-                <span>{a.message}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <>
+          {/* Contrôles bloquants : le moteur refuse de consolider */}
+          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-5">
+            <h2 className="font-semibold text-red-700">
+              Consolidation refusée : {result.blocking.length} contrôle(s) bloquant(s)
+            </h2>
+            <ul className="mt-3 space-y-2 text-sm text-red-700">
+              {result.blocking.map((a, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <span className="rounded-full border border-red-200 bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-600">
+                    {a.code}
+                  </span>
+                  <span>{a.message}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Tant que la consolidation est bloquée, seule la projection sans navettes est disponible */}
+          {baseline && (
+            <>
+              {missingCount > 0 && (
+                <div className="mt-6 rounded-xl bg-peach px-4 py-3 text-sm text-ink">
+                  {submittedCount === 0
+                    ? `Aucune navette soumise : voici le budget reconduit, tel qu'il serait sans aucune action (${missingCount} navette${missingCount > 1 ? 's' : ''} attendue${missingCount > 1 ? 's' : ''}).`
+                    : `${submittedCount} navette${submittedCount > 1 ? 's' : ''} soumise${submittedCount > 1 ? 's' : ''} sur ${data.departments.length}, ${missingCount} en attente. Tant que la consolidation n'est pas complète, seule cette projection à budget inchangé est disponible.`}
+                </div>
+              )}
+
+              <section className="mt-8">
+                <SectionTitle id="kpis">Indicateurs clés, projection sans navettes</SectionTitle>
+                <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
+                  <Card title="MRR fin d'année" value={fmtKEur(baseline.res.totals.mrrEnd)} tone="bad" hint="Érodé par le churn" />
+                  <Card title="Revenu" value={fmtKEur(baseline.res.totals.revenue)} />
+                  <Card
+                    title="EBITDA"
+                    value={fmtKEur(baseline.res.totals.ebitda)}
+                    tone={baseline.res.totals.ebitda < 0 ? 'bad' : 'default'}
+                    hint={`${baseline.prevYear} réalisé : ${fmtKEur(baseline.prevYearEbitda)}`}
+                  />
+                  <Card title="Trésorerie fin d'année" value={fmtKEur(baseline.res.totals.endCash)} tone={baseline.res.totals.endCash < 0 ? 'bad' : 'default'} />
+                  <Card
+                    title="Runway"
+                    value={fmtMonths(baseline.res.totals.minRunway)}
+                    tone={baseline.res.totals.minRunway !== null && baseline.res.totals.minRunway < Number(data.company.runway_freeze_months) ? 'bad' : 'default'}
+                  />
+                </div>
+              </section>
+
+              <section className="mt-8">
+                <SectionTitle id="pnl">P&amp;L {data.company.budget_year}</SectionTitle>
+                <p className="mt-1 text-sm text-ink/60">{baselineIntro}</p>
+                <div className="mt-4">
+                  <CollapsiblePnlTable title="P&L projeté sans navettes (k€)" rows={baselinePnlRows} defaultOpen />
+                </div>
+              </section>
+
+              <section className="mt-8">
+                <SectionTitle id="tresorerie">Trésorerie et runway</SectionTitle>
+                <div className="mt-4">
+                  <CollapsiblePnlTable title="Trésorerie et runway sans navettes" rows={baselineCashRows} firstColLabel="Ligne" defaultOpen />
+                </div>
+              </section>
+            </>
+          )}
+        </>
       ) : (
         <>
-          {/* KPIs */}
-          <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
-            <Card title="MRR fin d'année" value={fmtKEur(result.totals!.mrrEnd)} />
-            <Card
-              title="EBITDA annuel"
-              value={`${result.totals!.ebitda >= 0 ? '+' : ''}${fmtKEur(result.totals!.ebitda)}`}
-              tone={result.totals!.ebitda < 0 ? 'bad' : 'default'}
-              dot={result.totals!.ebitda >= 0}
-            />
-            <Card
-              title="Trésorerie fin d'année"
-              value={fmtKEur(result.totals!.endCash)}
-              tone={result.totals!.endCash < 0 ? 'bad' : 'default'}
-            />
-            <Card
-              title="Runway"
-              value={fmtMonths(result.totals!.minRunway)}
-              hint={`Seuils : vigilance ${data.company.runway_vigilance_months} mois, gel ${data.company.runway_freeze_months} mois`}
-              tone={
-                result.totals!.minRunway !== null && result.totals!.minRunway < Number(data.company.runway_freeze_months)
-                  ? 'bad'
-                  : 'default'
-              }
-            />
-            <Card
-              title="CAC moyen"
-              value={result.totals!.blendedCac !== null ? fmtEur(result.totals!.blendedCac) : 'n.a.'}
-              hint={result.totals!.grossPaybackMonths !== null ? `Payback brut ${result.totals!.grossPaybackMonths.toFixed(1)} mois` : undefined}
-            />
-          </div>
+          {/* 2. Indicateurs clés : avec navettes, puis projection sans navettes atténuée */}
+          <section className="mt-8">
+            <SectionTitle id="kpis">Indicateurs clés</SectionTitle>
+            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {kpiDefs.map((d) => (
+                <Card key={d.title} title={d.title} value={d.mainValue} tone={d.mainTone} hint={d.mainHint} dot={d.mainDot} />
+              ))}
+            </div>
+            {baseline && (
+              <>
+                <p className="mt-4 text-xs text-ink/50">Projection sans navettes, à budget inchangé : l&apos;impact des navettes est indiqué sur chaque carte.</p>
+                <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  {kpiDefs.map((d) => (
+                    <MutedKpi key={d.title} title={d.title} value={kpiMutedValue(d)} chip={kpiChip(d)} />
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
 
-          {/* Alertes de gestion */}
-          <div className="mt-8">
-            <h2 className="text-lg font-semibold text-ink">
+          {/* 3. Alertes de gestion */}
+          <section className="mt-8">
+            <SectionTitle id="alertes">
               Alertes de gestion ({result.warnings.length}) : à arbitrer, jamais bloquantes
-            </h2>
+            </SectionTitle>
             {result.warnings.length === 0 ? (
               <p className="mt-2 text-sm text-ink/60">Aucune alerte : le budget respecte le cadrage codir.</p>
             ) : (
@@ -547,160 +626,112 @@ export default function DashboardPage() {
                 ))}
               </ul>
             )}
-          </div>
+          </section>
 
-          {/* Graphique EBITDA mensuel et solde de trésorerie (présentationnel) */}
-          <div className="mt-8 rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="font-semibold text-ink">EBITDA mensuel et solde de trésorerie {data.company.budget_year}</h2>
-            <MonthlyChart months={result.months} />
-          </div>
-
-          {/* Contributions par département */}
-          <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <h2 className="px-5 pt-5 font-semibold text-ink">Contribution par département</h2>
-            <div className="overflow-x-auto">
-              <table className="mt-3 w-full text-sm">
-                <thead>
-                  <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                    <th className="px-5 py-3 font-semibold">Département</th>
-                    <th className="px-5 py-3 text-right font-semibold">Coût annuel</th>
-                    <th className="px-5 py-3 text-right font-semibold">Enveloppe</th>
-                    <th className="px-5 py-3 text-right font-semibold">Écart</th>
-                    <th className="px-5 py-3 text-right font-semibold">MRR annuel ajouté</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.departments.map((d) => (
-                    <tr key={d.departmentId} className="border-b border-lav/60 last:border-0">
-                      <td className="px-5 py-2.5 font-semibold text-ink">{d.name}</td>
-                      <td className="px-5 py-2.5 text-right tabular-nums">{fmtKEur(d.annualCost)}</td>
-                      <td className="px-5 py-2.5 text-right tabular-nums">{d.envelope !== null ? fmtKEur(d.envelope) : '-'}</td>
-                      <td className="px-5 py-2.5 text-right">
-                        {d.envelope === null ? (
-                          <span className="text-ink/40">-</span>
-                        ) : d.envelopeOverrun ? (
-                          <span className="font-semibold tabular-nums text-red-600">+{fmtKEur(d.envelopeOverrun)}</span>
-                        ) : (
-                          <Badge tone="accent">Dans le cadrage</Badge>
-                        )}
-                      </td>
-                      <td className="px-5 py-2.5 text-right tabular-nums">{d.annualMrrAdded > 0 ? fmtKEur(d.annualMrrAdded) : '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* 4. P&L 2027 : avec navettes (déplié) et sans navettes (replié), comparables */}
+          <section className="mt-8">
+            <SectionTitle id="pnl">P&amp;L {data.company.budget_year}</SectionTitle>
+            {baseline && <p className="mt-1 text-sm text-ink/60">{baselineIntro}</p>}
+            <div className="mt-4 space-y-4">
+              <CollapsiblePnlTable title="P&L projeté avec navettes (k€)" rows={withPnlRows} defaultOpen />
+              {baseline && <CollapsiblePnlTable title="P&L projeté sans navettes (k€)" rows={baselinePnlRows} />}
             </div>
-          </div>
+          </section>
 
-          {/* P&L mensuel */}
-          <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <h2 className="px-5 pt-5 font-semibold text-ink">P&amp;L mensuel consolidé (k€)</h2>
-            <div className="overflow-x-auto">
-              <table className="mt-3 w-full whitespace-nowrap text-sm">
-                <thead>
-                  <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                    <th className="sticky left-0 z-10 bg-white px-5 py-3 font-semibold">Ligne</th>
-                    {MONTH_LABELS.map((m) => (<th key={m} className="px-3 py-3 text-right font-semibold">{m}</th>))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {pnlRows.map(({ label, kind, fn }) => {
-                    if (kind === 'pct') {
-                      return (
-                        <tr key={label} className="border-b border-lav/60">
-                          <td className="sticky left-0 z-10 bg-white px-5 py-1 italic text-ink/50">{label}</td>
-                          {MONTH_LABELS.map((_, m) => (
-                            <td key={m} className="px-3 py-1 text-right italic tabular-nums text-ink/50">{pctCell(fn(m))}</td>
-                          ))}
-                        </tr>
-                      );
-                    }
-                    const strong = kind === 'solde';
-                    return (
-                      <tr key={label} className={strong ? 'bg-lav' : 'border-b border-lav/60'}>
-                        <td className={`sticky left-0 z-10 px-5 py-1.5 ${strong ? 'bg-lav font-semibold' : 'bg-white'}`}>{label}</td>
-                        {MONTH_LABELS.map((_, m) => {
-                          const v = fn(m);
-                          return (
-                            <td key={m} className={`px-3 py-1.5 text-right tabular-nums ${v < 0 ? 'text-red-600' : ''} ${strong ? 'font-semibold' : ''}`}>
-                              {Math.round(v / 1000).toLocaleString('fr-FR')}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          {/* 5. Trésorerie et runway : avec navettes (déplié) et sans navettes (replié) */}
+          <section className="mt-8">
+            <SectionTitle id="tresorerie">Trésorerie et runway</SectionTitle>
+            <div className="mt-4 space-y-4">
+              <CollapsiblePnlTable title="Trésorerie et runway avec navettes" rows={withCashRows} firstColLabel="Ligne" defaultOpen />
+              {baseline && <CollapsiblePnlTable title="Trésorerie et runway sans navettes" rows={baselineCashRows} firstColLabel="Ligne" />}
             </div>
-          </div>
+          </section>
 
-          {/* Trésorerie et runway */}
-          <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <h2 className="px-5 pt-5 font-semibold text-ink">Trésorerie et runway</h2>
-            <div className="overflow-x-auto">
-              <table className="mt-3 w-full whitespace-nowrap text-sm">
-                <thead>
-                  <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                    <th className="sticky left-0 z-10 bg-white px-5 py-3 font-semibold">Ligne</th>
-                    {MONTH_LABELS.map((m) => (<th key={m} className="px-3 py-3 text-right font-semibold">{m}</th>))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="bg-lav">
-                    <td className="sticky left-0 z-10 bg-lav px-5 py-1.5 font-semibold">Solde de trésorerie fin de période (k€)</td>
-                    {M.map((r) => (
-                      <td key={r.month} className={`px-3 py-1.5 text-right font-semibold tabular-nums ${r.cash < 0 ? 'text-red-600' : ''}`}>
-                        {Math.round(r.cash / 1000).toLocaleString('fr-FR')}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-lav/60">
-                    <td className="sticky left-0 z-10 bg-white px-5 py-1 italic text-ink/50">Runway (mois)</td>
-                    {M.map((r) => (
-                      <td key={r.month} className="px-3 py-1 text-right italic tabular-nums text-ink/50">
-                        {r.runwayMonths === null ? 'n.a.' : r.runwayMonths.toFixed(1)}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
+          {/* 6. Graphique EBITDA et trésorerie */}
+          <section className="mt-8">
+            <SectionTitle id="graphique">EBITDA et trésorerie {data.company.budget_year}</SectionTitle>
+            <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+              <MonthlyChart months={result.months} />
             </div>
-          </div>
+          </section>
 
-          {/* CAC par canal : trimestres en colonnes */}
-          {channelOrder.length > 0 && (
-            <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-              <h2 className="px-5 pt-5 font-semibold text-ink">CAC par canal et par trimestre</h2>
+          {/* 7. Contribution par département */}
+          <section className="mt-8">
+            <SectionTitle id="contribution">Contribution par département</SectionTitle>
+            <div className="mt-4 overflow-hidden rounded-2xl bg-white shadow-sm">
               <div className="overflow-x-auto">
-                <table className="mt-3 w-full text-sm">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
-                      <th className="px-5 py-3 font-semibold">Canal</th>
-                      <th className="px-5 py-3 text-right font-semibold">Plafond</th>
-                      {[1, 2, 3, 4].map((q) => (<th key={q} className="px-5 py-3 text-right font-semibold">T{q}</th>))}
+                      <th className="px-5 py-3 font-semibold">Département</th>
+                      <th className="px-5 py-3 text-right font-semibold">Coût annuel</th>
+                      <th className="px-5 py-3 text-right font-semibold">Enveloppe</th>
+                      <th className="px-5 py-3 text-right font-semibold">Écart</th>
+                      <th className="px-5 py-3 text-right font-semibold">
+                        New MRR annuel
+                        <span className="block text-[10px] font-normal normal-case tracking-normal text-ink/40">cumul des ajouts mensuels, expansion incluse</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {channelOrder.map((ch) => (
-                      <tr key={ch.id} className="border-b border-lav/60 last:border-0">
-                        <td className="px-5 py-2 font-semibold text-ink">{ch.name}</td>
-                        <td className="px-5 py-2 text-right tabular-nums text-ink/60">{ch.cap === null ? '-' : fmtEur(ch.cap)}</td>
-                        {[1, 2, 3, 4].map((q) => {
-                          const cell = cacCell(ch.id, q);
-                          const above = cell?.cac != null && ch.cap != null && cell.cac > ch.cap;
-                          return (
-                            <td key={q} className={`px-5 py-2 text-right tabular-nums ${above ? 'font-semibold text-red-600' : ''}`}>
-                              {cell == null || cell.cac === null ? 'n.a.' : fmtEur(cell.cac)}
-                            </td>
-                          );
-                        })}
+                    {result.departments.map((d) => (
+                      <tr key={d.departmentId} className="border-b border-lav/60 last:border-0">
+                        <td className="px-5 py-2.5 font-semibold text-ink">{d.name}</td>
+                        <td className="px-5 py-2.5 text-right tabular-nums">{fmtKEur(d.annualCost)}</td>
+                        <td className="px-5 py-2.5 text-right tabular-nums">{d.envelope !== null ? fmtKEur(d.envelope) : '-'}</td>
+                        <td className="px-5 py-2.5 text-right">
+                          {d.envelope === null ? (
+                            <span className="text-ink/40">-</span>
+                          ) : d.envelopeOverrun ? (
+                            <span className="font-semibold tabular-nums text-red-600">+{fmtKEur(d.envelopeOverrun)}</span>
+                          ) : (
+                            <Badge tone="accent">Dans le cadrage</Badge>
+                          )}
+                        </td>
+                        <td className="px-5 py-2.5 text-right tabular-nums">{d.annualMrrAdded > 0 ? fmtKEur(d.annualMrrAdded) : '-'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
+          </section>
+
+          {/* 8. CAC par canal et par trimestre */}
+          {channelOrder.length > 0 && (
+            <section className="mt-8">
+              <SectionTitle id="cac">CAC par canal et par trimestre</SectionTitle>
+              <div className="mt-4 overflow-hidden rounded-2xl bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-lav text-left text-xs uppercase tracking-wide text-ink/50">
+                        <th className="px-5 py-3 font-semibold">Canal</th>
+                        <th className="px-5 py-3 text-right font-semibold">Plafond</th>
+                        {[1, 2, 3, 4].map((q) => (<th key={q} className="px-5 py-3 text-right font-semibold">T{q}</th>))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {channelOrder.map((ch) => (
+                        <tr key={ch.id} className="border-b border-lav/60 last:border-0">
+                          <td className="px-5 py-2 font-semibold text-ink">{ch.name}</td>
+                          <td className="px-5 py-2 text-right tabular-nums text-ink/60">{ch.cap === null ? '-' : fmtEur(ch.cap)}</td>
+                          {[1, 2, 3, 4].map((q) => {
+                            const cell = cacCell(ch.id, q);
+                            const above = cell?.cac != null && ch.cap != null && cell.cac > ch.cap;
+                            return (
+                              <td key={q} className={`px-5 py-2 text-right tabular-nums ${above ? 'font-semibold text-red-600' : ''}`}>
+                                {cell == null || cell.cac === null ? 'n.a.' : fmtEur(cell.cac)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
           )}
         </>
       )}
