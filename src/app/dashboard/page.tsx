@@ -5,6 +5,7 @@ import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, usePort
 import { MonthlyChart } from '@/components/monthly-chart';
 import { NavetteStatusCard } from '@/components/navette-status-card';
 import { CollapsiblePnlTable, type PnlTableRow } from '@/components/pnl-table';
+import { InfoTip } from '@/components/info-tip';
 import { getSupabase } from '@/lib/supabase';
 import { buildConsolidationInputs, loadActuals, toChannel, toCompanyConfig, toDepartment, toDriverDef } from '@/lib/data';
 import type { ActualsData, BudgetMode, SubmissionRow } from '@/lib/data';
@@ -69,6 +70,7 @@ export default function DashboardPage() {
   const [cycleMsg, setCycleMsg] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
   const [actuals, setActuals] = useState<ActualsData | null>(null);
+  const [baselineKpiOpen, setBaselineKpiOpen] = useState(true);
 
   const result = useMemo(() => (data ? consolidate(buildConsolidationInputs(data)) : null), [data]);
 
@@ -91,10 +93,19 @@ export default function DashboardPage() {
     // Structure Annexe A : l'EBITDA de N-1 est le revenu moins ces quatre postes.
     const prevYearTotalCosts =
       Number(pnl.sm) + Number(pnl.tech_product) + Number(pnl.payroll_other) + Number(pnl.ga);
+    // Repartition du realise N-1, pour ventiler le socle reconduit sur les memes lignes
+    // que le budget (sans changer le total) : S&M, autres salaires, autres opex.
+    const t = prevYearTotalCosts || 1;
+    const costShares = {
+      sm: Number(pnl.sm) / t,
+      salaries: Number(pnl.payroll_other) / t,
+      opex: (Number(pnl.tech_product) + Number(pnl.ga)) / t,
+    };
     return {
       prevYear,
       prevYearRevenue,
       prevYearEbitda: prevYearRevenue - prevYearTotalCosts,
+      costShares,
       res: projectBaseline({
         openingMrr: Number(data.company.opening_mrr),
         monthlyChurnPct: Number(data.company.monthly_churn_pct),
@@ -290,6 +301,7 @@ export default function DashboardPage() {
   // les douze mois, les stocks (MRR, Trésorerie) prennent décembre, les ratios prennent
   // décembre (marge) ou la valeur d'année (runway, géré à part avec minRunway).
   const rangeMonths = (fn: (m: number) => number): number[] => Array.from({ length: 12 }, (_, m) => fn(m));
+  const sum12 = (fn: (m: number) => number): number => rangeMonths(fn).reduce((a, b) => a + b, 0);
   const isStockLabel = (label: string) => label.startsWith('MRR') || label.startsWith('Trésorerie');
 
   const withPnlRows: PnlTableRow[] = result.ok
@@ -315,14 +327,33 @@ export default function DashboardPage() {
     : [];
 
   // Projection sans navettes (baseline) : reconduction définie dans engine/baseline.ts.
+  // Mêmes lignes EXACTEMENT que le P&L avec navettes. Le socle fixe reconduit est ventilé
+  // sur Coûts S&M / Autres salaires / Autres opex selon la répartition du réalisé N-1,
+  // sans changer le total (donc EBITDA et trésorerie inchangés). COGS = revenu - marge brute.
   const bm = baseline?.res.months ?? [];
+  const shares = baseline?.costShares ?? { sm: 0, salaries: 0, opex: 0 };
+  const bmSm = (i: number) => bm[i].fixedCosts * shares.sm;
+  const bmSal = (i: number) => bm[i].fixedCosts * shares.salaries;
+  const bmOpex = (i: number) => bm[i].fixedCosts * shares.opex;
+  const bmCogs = (i: number) => bm[i].revenue - bm[i].grossMargin;
+  const bmContrib = (i: number) => bm[i].grossMargin - bmSm(i);
+  const pctAnnual = (fn: (i: number) => number) => (bm[11]?.revenue ? fn(11) / bm[11].revenue : null);
   const baselinePnlRows: PnlTableRow[] = baseline
     ? [
-        { label: 'MRR fin de mois', format: 'amount', months: bm.map((x) => x.mrrEnd), annual: bm[11].mrrEnd },
-        { label: 'Revenu', format: 'amount', months: bm.map((x) => x.revenue), annual: bm.reduce((a, x) => a + x.revenue, 0) },
-        { label: 'Marge brute', format: 'amount', strong: true, months: bm.map((x) => x.grossMargin), annual: bm.reduce((a, x) => a + x.grossMargin, 0) },
-        { label: 'Coûts fixes reconduits', format: 'amount', months: bm.map((x) => -x.fixedCosts), annual: -baseline.res.annualFixedCosts },
-        { label: 'EBITDA', format: 'amount', strong: true, months: bm.map((x) => x.ebitda), annual: bm.reduce((a, x) => a + x.ebitda, 0) },
+        { label: 'MRR fin de mois', format: 'amount', months: rangeMonths((i) => bm[i].mrrEnd), annual: bm[11].mrrEnd },
+        { label: 'Revenus non récurrents', format: 'amount', months: rangeMonths(() => 0), annual: 0 },
+        { label: 'Revenu', format: 'amount', months: rangeMonths((i) => bm[i].revenue), annual: sum12((i) => bm[i].revenue) },
+        { label: 'COGS', format: 'amount', months: rangeMonths((i) => -bmCogs(i)), annual: -sum12(bmCogs) },
+        { label: 'Marge brute', format: 'amount', strong: true, months: rangeMonths((i) => bm[i].grossMargin), annual: sum12((i) => bm[i].grossMargin) },
+        { label: 'Marge brute (%)', format: 'pct', muted: true, months: rangeMonths((i) => (bm[i].revenue ? bm[i].grossMargin / bm[i].revenue : NaN)), annual: pctAnnual((i) => bm[i].grossMargin) },
+        { label: 'Coûts S&M', format: 'amount', months: rangeMonths((i) => -bmSm(i)), annual: -sum12(bmSm) },
+        { label: 'Marge de contribution', format: 'amount', strong: true, months: rangeMonths(bmContrib), annual: sum12(bmContrib) },
+        { label: 'Marge de contribution (%)', format: 'pct', muted: true, months: rangeMonths((i) => (bm[i].revenue ? bmContrib(i) / bm[i].revenue : NaN)), annual: pctAnnual(bmContrib) },
+        { label: 'Autres salaires', format: 'amount', months: rangeMonths((i) => -bmSal(i)), annual: -sum12(bmSal) },
+        { label: 'Autres opex', format: 'amount', months: rangeMonths((i) => -bmOpex(i)), annual: -sum12(bmOpex) },
+        { label: 'EBITDA', format: 'amount', strong: true, months: rangeMonths((i) => bm[i].ebitda), annual: sum12((i) => bm[i].ebitda) },
+        { label: 'Marge sur EBITDA (%)', format: 'pct', muted: true, months: rangeMonths((i) => (bm[i].revenue ? bm[i].ebitda / bm[i].revenue : NaN)), annual: pctAnnual((i) => bm[i].ebitda) },
+        { label: 'Capex', format: 'amount', months: rangeMonths(() => 0), annual: 0 },
       ]
     : [];
   const baselineCashRows: PnlTableRow[] = baseline
@@ -398,8 +429,8 @@ export default function DashboardPage() {
     ? okNav
     : [['navettes', 'Navettes'], ...(baseline ? ([['kpis', 'Indicateurs'], ['pnl', 'P&L'], ['tresorerie', 'Trésorerie']] as [string, string][]) : [])];
 
-  const baselineIntro = baseline
-    ? `La projection sans navettes reconduit le budget ${baseline.prevYear} : le MRR de fin ${baseline.prevYear} s’érode du churn, la marge brute reste au taux de cadrage et le socle de coûts fixes de ${baseline.prevYear} est reconduit.`
+  const baselineTooltip = baseline
+    ? `Projection sans navettes : reconduction du budget ${baseline.prevYear}. Le MRR de fin ${baseline.prevYear} s’érode du churn, la marge brute reste au taux de cadrage, et le socle de coûts fixes de ${baseline.prevYear} est reconduit puis ventilé sur les mêmes lignes que le budget (Coûts S&M, Autres salaires, Autres opex) selon la répartition du réalisé ${baseline.prevYear}, sans changer le total.`
     : '';
 
   return (
@@ -570,16 +601,15 @@ export default function DashboardPage() {
 
               <section className="mt-8">
                 <SectionTitle id="pnl">P&amp;L {data.company.budget_year}</SectionTitle>
-                <p className="mt-1 text-sm text-ink/60">{baselineIntro}</p>
                 <div className="mt-4">
-                  <CollapsiblePnlTable title="P&L projeté sans navettes (k€)" rows={baselinePnlRows} defaultOpen />
+                  <CollapsiblePnlTable title="P&L projeté sans navettes (k€)" rows={baselinePnlRows} defaultOpen info={baselineTooltip} />
                 </div>
               </section>
 
               <section className="mt-8">
                 <SectionTitle id="tresorerie">Trésorerie et runway</SectionTitle>
                 <div className="mt-4">
-                  <CollapsiblePnlTable title="Trésorerie et runway sans navettes" rows={baselineCashRows} firstColLabel="Ligne" defaultOpen />
+                  <CollapsiblePnlTable title="Trésorerie et runway sans navettes" rows={baselineCashRows} firstColLabel="Ligne" totalLabel="Solde" defaultOpen info={baselineTooltip} />
                 </div>
               </section>
             </>
@@ -596,22 +626,36 @@ export default function DashboardPage() {
               ))}
             </div>
             {baseline && (
-              <>
-                <p className="mt-4 text-xs text-ink/50">Projection sans navettes, à budget inchangé : l&apos;impact des navettes est indiqué sur chaque carte.</p>
-                <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-3">
-                  {kpiDefs.map((d) => (
-                    <MutedKpi key={d.title} title={d.title} value={kpiMutedValue(d)} chip={kpiChip(d)} />
-                  ))}
+              <div className="mt-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBaselineKpiOpen((o) => !o)}
+                    aria-expanded={baselineKpiOpen}
+                    className="flex items-center gap-2"
+                  >
+                    <span className={`inline-block text-primary transition-transform ${baselineKpiOpen ? 'rotate-90' : ''}`} aria-hidden="true">▸</span>
+                    <span className="rounded-full bg-lav px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink">Baseline</span>
+                  </button>
+                  <InfoTip text={baselineTooltip} />
                 </div>
-              </>
+                {baselineKpiOpen && (
+                  <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    {kpiDefs.map((d) => (
+                      <MutedKpi key={d.title} title={d.title} value={kpiMutedValue(d)} chip={kpiChip(d)} />
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </section>
 
           {/* 3. Alertes de gestion */}
           <section className="mt-8">
-            <SectionTitle id="alertes">
-              Alertes de gestion ({result.warnings.length}) : à arbitrer, jamais bloquantes
-            </SectionTitle>
+            <div className="flex items-center gap-2">
+              <SectionTitle id="alertes">Alertes de gestion</SectionTitle>
+              <span className="rounded-full bg-lav px-2 py-0.5 text-xs font-semibold tabular-nums text-ink">{result.warnings.length}</span>
+            </div>
             {result.warnings.length === 0 ? (
               <p className="mt-2 text-sm text-ink/60">Aucune alerte : le budget respecte le cadrage codir.</p>
             ) : (
@@ -631,10 +675,9 @@ export default function DashboardPage() {
           {/* 4. P&L 2027 : avec navettes (déplié) et sans navettes (replié), comparables */}
           <section className="mt-8">
             <SectionTitle id="pnl">P&amp;L {data.company.budget_year}</SectionTitle>
-            {baseline && <p className="mt-1 text-sm text-ink/60">{baselineIntro}</p>}
             <div className="mt-4 space-y-4">
               <CollapsiblePnlTable title="P&L projeté avec navettes (k€)" rows={withPnlRows} defaultOpen />
-              {baseline && <CollapsiblePnlTable title="P&L projeté sans navettes (k€)" rows={baselinePnlRows} />}
+              {baseline && <CollapsiblePnlTable title="P&L projeté sans navettes (k€)" rows={baselinePnlRows} info={baselineTooltip} />}
             </div>
           </section>
 
@@ -642,8 +685,8 @@ export default function DashboardPage() {
           <section className="mt-8">
             <SectionTitle id="tresorerie">Trésorerie et runway</SectionTitle>
             <div className="mt-4 space-y-4">
-              <CollapsiblePnlTable title="Trésorerie et runway avec navettes" rows={withCashRows} firstColLabel="Ligne" defaultOpen />
-              {baseline && <CollapsiblePnlTable title="Trésorerie et runway sans navettes" rows={baselineCashRows} firstColLabel="Ligne" />}
+              <CollapsiblePnlTable title="Trésorerie et runway avec navettes" rows={withCashRows} firstColLabel="Ligne" totalLabel="Solde" defaultOpen />
+              {baseline && <CollapsiblePnlTable title="Trésorerie et runway sans navettes" rows={baselineCashRows} firstColLabel="Ligne" totalLabel="Solde" info={baselineTooltip} />}
             </div>
           </section>
 
@@ -666,7 +709,7 @@ export default function DashboardPage() {
                       <th className="px-5 py-3 font-semibold">Département</th>
                       <th className="px-5 py-3 text-right font-semibold">Coût annuel</th>
                       <th className="px-5 py-3 text-right font-semibold">Enveloppe</th>
-                      <th className="px-5 py-3 text-right font-semibold">Écart</th>
+                      <th className="px-5 py-3 text-right font-semibold">Écart vs enveloppe</th>
                       <th className="px-5 py-3 text-right font-semibold">
                         New MRR annuel
                         <span className="block text-[10px] font-normal normal-case tracking-normal text-ink/40">cumul des ajouts mensuels, expansion incluse</span>
@@ -682,10 +725,12 @@ export default function DashboardPage() {
                         <td className="px-5 py-2.5 text-right">
                           {d.envelope === null ? (
                             <span className="text-ink/40">-</span>
-                          ) : d.envelopeOverrun ? (
-                            <span className="font-semibold tabular-nums text-red-600">+{fmtKEur(d.envelopeOverrun)}</span>
+                          ) : d.annualCost - d.envelope > 0 ? (
+                            // Depassement : ecart positif, rouge sobre et gras.
+                            <span className="font-semibold tabular-nums text-red-600">+{fmtKEur(d.annualCost - d.envelope)}</span>
                           ) : (
-                            <Badge tone="accent">Dans le cadrage</Badge>
+                            // Sous l'enveloppe : ecart negatif, en ink discret (le vert n'existe pas en texte).
+                            <span className="tabular-nums text-ink/60">{fmtKEur(d.annualCost - d.envelope)}</span>
                           )}
                         </td>
                         <td className="px-5 py-2.5 text-right tabular-nums">{d.annualMrrAdded > 0 ? fmtKEur(d.annualMrrAdded) : '-'}</td>

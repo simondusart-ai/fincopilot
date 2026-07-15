@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { MONTH_LABELS, fmtPct } from '@/lib/format';
+import { InfoTip } from '@/components/info-tip';
 
 /**
  * Tableau mensuel repliable, presentationnel : douze mois plus une colonne "Total annee"
@@ -36,26 +37,35 @@ export function CollapsiblePnlTable({
   rows,
   defaultOpen = false,
   firstColLabel = 'Ligne (k€)',
+  totalLabel = 'Total année',
+  info,
 }: {
   title: string;
   rows: PnlTableRow[];
   defaultOpen?: boolean;
   firstColLabel?: string;
+  totalLabel?: string;
+  /** Texte d'infobulle affiche via une pastille "?" a cote du titre (accessible). */
+  info?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-5 py-4 text-left font-semibold text-ink"
-      >
-        <span className={`inline-block text-primary transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden="true">
-          ▸
-        </span>
-        {title}
-      </button>
+      {/* Le bouton de pli et l'infobulle sont des elements distincts (jamais imbriques). */}
+      <div className="flex items-center gap-2 px-5 py-4">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex flex-1 items-center gap-2 text-left font-semibold text-ink"
+        >
+          <span className={`inline-block text-primary transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden="true">
+            ▸
+          </span>
+          {title}
+        </button>
+        {info && <InfoTip text={info} />}
+      </div>
       {open && (
         <div className="overflow-x-auto">
           <table className="w-full whitespace-nowrap text-sm">
@@ -65,7 +75,7 @@ export function CollapsiblePnlTable({
                 {MONTH_LABELS.map((m) => (
                   <th key={m} className="px-3 py-3 text-right font-semibold">{m}</th>
                 ))}
-                <th className="bg-card-soft px-4 py-3 text-right font-semibold text-ink">Total année</th>
+                <th className="bg-card-soft px-4 py-3 text-right font-semibold text-ink">{totalLabel}</th>
               </tr>
             </thead>
             <tbody>
