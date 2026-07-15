@@ -1,8 +1,10 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
+import { Badge, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
 import { InfoTip } from '@/components/info-tip';
+import { KpiCardPilotage } from '@/components/kpi-card-pilotage';
+import { AlertBanners } from '@/components/alert-banner';
 import { getSupabase } from '@/lib/supabase';
 import { buildConsolidationInputs, loadActuals, type ActualsData } from '@/lib/data';
 import { budgetAnnualPnl, computeActuals, consolidate, realizedAnnualPnl, type ActualMonthResult, type ActualsResult, type AnnualPnl } from '@/lib/engine';
@@ -278,30 +280,63 @@ export default function PilotagePage() {
         <Loading />
       ) : (
         <>
-          {/* 1. Tuiles du dernier mois saisi */}
+          {/* 1. Cartes d'indicateurs du dernier mois saisi */}
           {lastMonth ? (
             <>
-              <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-ink/50">
+              <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-lav px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ink">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="4.5" width="18" height="16" rx="2" />
+                  <path d="M3 9h18M8 2.5v4M16 2.5v4" />
+                </svg>
                 Dernier mois saisi : {MONTH_LABELS[lastMonth.month - 1]} {selectedYear}
-              </p>
+              </div>
               <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-3">
-                {/* MRR et ajouts nets, avec la croissance m/m en petit italique gris dans la tuile */}
-                <div className="rounded-2xl bg-white p-5 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">MRR et ajouts nets</p>
-                  <p className="mt-2 text-3xl font-semibold tabular-nums text-ink">
-                    {fmtKEur(lastMonth.mrrEnd)}
-                    {lastMonth.netAdds >= 0 && <span className="ml-2 inline-block h-2.5 w-2.5 rounded-full bg-mint align-middle" />}
-                  </p>
-                  <p className="mt-2 text-xs text-ink/50">Ajouts nets : {lastMonth.netAdds.toLocaleString('fr-FR')}</p>
-                  {lastMonth.mrrGrowthMoM !== null && (
-                    <p className="text-xs italic text-ink/40">{signedPct(lastMonth.mrrGrowthMoM)} vs mois précédent</p>
-                  )}
-                </div>
-                <Card title="NRR" value={lastMonth.nrr === null ? 'n.a.' : fmtPct(lastMonth.nrr)} hint={lastMonth.nrrIsProxy ? 'Proxy annualisé' : 'Mesuré'} />
-                <Card title="CAC moyen" value={lastMonth.cacAvg === null ? 'n.a.' : fmtEur(lastMonth.cacAvg)} hint={target !== null ? `Cible ${fmtEur(target)}` : undefined} tone={lastMonth.cacAvg !== null && target !== null && lastMonth.cacAvg > target ? 'bad' : 'default'} />
-                <Card title="Marge de contribution" value={lastMonth.contributionMarginPct === null ? 'n.a.' : fmtPct(lastMonth.contributionMarginPct)} tone={lastMonth.contributionMarginPct !== null && lastMonth.contributionMarginPct < 0 ? 'bad' : 'default'} />
-                <Card title="Burn du mois" value={lastMonth.burn === null ? 'n.a.' : fmtKEur(lastMonth.burn)} />
-                <Card title="Runway" value={fmtMonths(lastMonth.runwayMonths)} hint={`Seuils : vigilance ${vigilance} mois, gel ${freeze} mois`} tone={lastMonth.runwayMonths !== null && lastMonth.runwayMonths < freeze ? 'bad' : 'default'} />
+                <KpiCardPilotage
+                  dimension="croissance"
+                  icon="curve"
+                  title="MRR et ajouts nets"
+                  value={fmtKEur(lastMonth.mrrEnd)}
+                  sub={`Ajouts nets : ${lastMonth.netAdds.toLocaleString('fr-FR')}`}
+                  italic={lastMonth.mrrGrowthMoM !== null ? `${signedPct(lastMonth.mrrGrowthMoM)} vs mois précédent` : undefined}
+                />
+                <KpiCardPilotage
+                  dimension="croissance"
+                  icon="loop"
+                  title="NRR"
+                  value={lastMonth.nrr === null ? 'n.a.' : fmtPct(lastMonth.nrr)}
+                  sub={lastMonth.nrrIsProxy ? 'Proxy annualisé' : 'Mesuré'}
+                />
+                <KpiCardPilotage
+                  dimension="rentabilite"
+                  icon="target"
+                  title="CAC moyen"
+                  value={lastMonth.cacAvg === null ? 'n.a.' : fmtEur(lastMonth.cacAvg)}
+                  sub={target !== null ? `Cible ${fmtEur(target)}` : undefined}
+                  bad={lastMonth.cacAvg !== null && target !== null && lastMonth.cacAvg > target}
+                />
+                <KpiCardPilotage
+                  dimension="rentabilite"
+                  icon="gauge"
+                  title="Marge de contribution"
+                  value={lastMonth.contributionMarginPct === null ? 'n.a.' : fmtPct(lastMonth.contributionMarginPct)}
+                  sub="% du CA"
+                  bad={lastMonth.contributionMarginPct !== null && lastMonth.contributionMarginPct < 0}
+                />
+                <KpiCardPilotage
+                  dimension="cash"
+                  icon="drop"
+                  title="Burn du mois"
+                  value={lastMonth.burn === null ? 'n.a.' : fmtKEur(lastMonth.burn)}
+                  sub={lastMonth.cashEnd !== null ? `Trésorerie : ${fmtKEur(lastMonth.cashEnd)}` : undefined}
+                />
+                <KpiCardPilotage
+                  dimension="cash"
+                  icon="hourglass"
+                  title="Runway"
+                  value={fmtMonths(lastMonth.runwayMonths)}
+                  sub={`Seuils : vigilance ${vigilance} mois, gel ${freeze} mois`}
+                  bad={lastMonth.runwayMonths !== null && lastMonth.runwayMonths < freeze}
+                />
               </div>
             </>
           ) : (
@@ -310,22 +345,20 @@ export default function PilotagePage() {
             </p>
           )}
 
-          {/* Alertes de gestion du dernier mois saisi */}
-          {shownAlerts.length > 0 && (
-            <div className="mt-6">
-              <h2 className="text-lg font-semibold text-ink">Alertes de gestion ({shownAlerts.length}) : à arbitrer, jamais bloquantes</h2>
-              <ul className="mt-3 space-y-2">
-                {shownAlerts.map((a, i) => (
-                  <li key={i} className="flex items-start gap-3 rounded-xl bg-peach px-4 py-3 text-sm text-ink">
-                    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink">{a.code}</span>
-                    {alertsFromPreviousMonth && (
-                      <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink">Mois précédent</span>
-                    )}
-                    <span>{a.message}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {/* Alertes de gestion du dernier mois saisi (titre harmonise avec l'ecran Budget) */}
+          {lastMonth && (
+            <section className="mt-8">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-ink">Alertes de gestion</h2>
+                <span className="rounded-full bg-lav px-2 py-0.5 text-xs font-semibold tabular-nums text-ink">{shownAlerts.length}</span>
+              </div>
+              <AlertBanners
+                alerts={shownAlerts}
+                emptyMessage="Aucune alerte : le réalisé est dans le cadrage."
+                periodFor={(a) => (a.month ? `${MONTH_LABELS[a.month - 1]} ${selectedYear}` : a.quarter ? `T${a.quarter}` : undefined)}
+                extraTag={alertsFromPreviousMonth ? 'Mois précédent' : undefined}
+              />
+            </section>
           )}
 
           {/* 2. Tableau mensuel des indicateurs */}

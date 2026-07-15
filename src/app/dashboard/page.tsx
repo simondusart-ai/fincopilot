@@ -6,6 +6,7 @@ import { MonthlyChart } from '@/components/monthly-chart';
 import { NavetteStatusCard } from '@/components/navette-status-card';
 import { CollapsiblePnlTable, type PnlTableRow } from '@/components/pnl-table';
 import { InfoTip } from '@/components/info-tip';
+import { AlertBanners } from '@/components/alert-banner';
 import { getSupabase } from '@/lib/supabase';
 import { buildConsolidationInputs, loadActuals, toChannel, toCompanyConfig, toDepartment, toDriverDef } from '@/lib/data';
 import type { ActualsData, BudgetMode, SubmissionRow } from '@/lib/data';
@@ -793,20 +794,11 @@ export default function DashboardPage() {
               <SectionTitle id="alertes">Alertes de gestion</SectionTitle>
               <span className="rounded-full bg-lav px-2 py-0.5 text-xs font-semibold tabular-nums text-ink">{result.warnings.length}</span>
             </div>
-            {result.warnings.length === 0 ? (
-              <p className="mt-2 text-sm text-ink/60">Aucune alerte : le budget respecte le cadrage codir.</p>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {result.warnings.map((w, i) => (
-                  <li key={i} className="flex items-start gap-3 rounded-xl bg-peach px-4 py-3 text-sm text-ink">
-                    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink">
-                      {w.code}
-                    </span>
-                    <span>{w.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <AlertBanners
+              alerts={result.warnings}
+              emptyMessage="Aucune alerte : le budget respecte le cadrage."
+              periodFor={(a) => (a.quarter ? `T${a.quarter}` : a.month ? MONTH_LABELS[a.month - 1] : undefined)}
+            />
           </section>
 
           {/* 4. P&L 2027 : avec navettes (déplié) et sans navettes (replié), comparables */}
