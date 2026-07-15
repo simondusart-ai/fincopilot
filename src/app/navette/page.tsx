@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 import { SubmissionStatusBadge } from '@/components/navette-status-card';
+import { NavettePnlRecap, type PnlRecapRow } from '@/components/navette-pnl-recap';
 import { businessCaseLines, computeBusinessCase, quartersFromAmount } from '@/lib/engine';
 import type { DriverKind, LineFrequency } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
@@ -252,6 +253,14 @@ export default function NavettePage() {
     const { drivers, customs: cs, bcs } = sectionLines(s);
     return drivers.length + cs.length + bcs.length > 0 || s.addKind !== undefined;
   });
+
+  // Lignes du recap P&L : une par section REELLEMENT presente (avec des lignes), dans le
+  // meme ordre que la saisie. On reutilise sectionQuarters : aucun recalcul parallele,
+  // donc les montants collent a l'euro pres aux sous-totaux affiches plus bas.
+  const recapRows: PnlRecapRow[] = SECTIONS.filter((s) => {
+    const { drivers, customs: cs, bcs } = sectionLines(s);
+    return drivers.length + cs.length + bcs.length > 0;
+  }).map((s) => ({ id: s.id, title: s.title, isCost: s.isCost, quarters: sectionQuarters(s) }));
 
   function validateLocally(): string[] {
     const errs: string[] = [];
@@ -592,7 +601,6 @@ export default function NavettePage() {
             <Card
               title="Enveloppe globale"
               value={dept.envelope != null ? fmtKEur(Number(dept.envelope)) : 'Aucune'}
-              hint="Fixée par le CFO dans Réglages ; un dépassement est signalé, jamais bloqué."
             />
             <Card
               title="Coût annuel saisi"
@@ -604,10 +612,17 @@ export default function NavettePage() {
                   ? 'Somme des sections de coût, Topline exclue.'
                   : overEnvelope
                     ? 'Somme des sections de coût, au-dessus de l’enveloppe globale.'
-                    : 'Somme des sections de coût, dans l’enveloppe globale.'
+                    : undefined
               }
             />
           </div>
+
+          {/* Recap P&L du departement : synthese des sections, mise a jour en direct en brouillon */}
+          <NavettePnlRecap
+            budgetYear={data.company.budget_year}
+            rows={recapRows}
+            envelope={dept.envelope != null ? Number(dept.envelope) : null}
+          />
 
           {/* Suivi de la navette */}
           <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
@@ -693,7 +708,6 @@ export default function NavettePage() {
               <div key={s.id} className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
                 <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
                   <h2 className="font-semibold text-ink">{s.title}</h2>
-                  {!s.isCost && <span className="text-xs text-ink/50">Hors total du département.</span>}
                   {/*
                     Le bouton reste VISIBLE des qu'on peut gerer la navette, et seulement
                     desactive quand elle est figee : c'etait la cause du bug (il n'etait

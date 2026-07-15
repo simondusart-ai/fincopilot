@@ -25,7 +25,10 @@
       "Bash(npx tsx *)",
       "Bash(npx tsc *)",
       "Bash(npx vitest *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git add *)"
     ]
   }
 }

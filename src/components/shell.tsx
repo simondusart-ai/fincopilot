@@ -147,9 +147,6 @@ export function Page({ data, children }: { data: PortalData | null; children: Re
     <div className="flex min-h-screen flex-col">
       <Header data={data} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
-      <footer className="py-6 text-center text-xs text-ink/40">
-        Navette : moteur de consolidation déterministe et testé, configuration en base, aucun chiffre rédigé par IA.
-      </footer>
     </div>
   );
 }
