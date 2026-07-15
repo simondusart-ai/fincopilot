@@ -90,7 +90,7 @@ function CashFlowBars({ years }: { years: BusinessCaseYear[] }) {
 }
 
 export default function BusinessCasePage() {
-  const { data, error, loading } = usePortalData();
+  const { data, error, loading, reload } = usePortalData();
   const [label, setLabel] = useState('');
   const [horizon, setHorizon] = useState(3);
   const [ratePct, setRatePct] = useState('15');
@@ -99,6 +99,7 @@ export default function BusinessCasePage() {
   const [yrs, setYrs] = useState<YearForm[]>(() => Array.from({ length: 3 }, emptyYear));
   const [busy, setBusy] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const num = (s: string) => (s.trim() === '' ? 0 : Number(s) || 0);
 
@@ -178,6 +179,25 @@ export default function BusinessCasePage() {
     }
   }
 
+  // Suppression d'un business case (CFO et CEO uniquement, via la RLS). Confirmation en
+  // deux temps : un cas accepte porte des lignes dans une navette, sa suppression les retire.
+  async function deleteCase(id: string) {
+    setBusy(true);
+    setSaveMsg(null);
+    try {
+      const supabase = getSupabase();
+      const { error: e } = await supabase.from('business_cases').delete().eq('id', id);
+      if (e) throw new Error(e.message);
+      setConfirmDelete(null);
+      setSaveMsg('Business case supprimé.');
+      await reload();
+    } catch (e) {
+      setSaveMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Page data={data}>
       <h1 className="text-2xl font-bold text-ink">Business case</h1>
@@ -199,6 +219,7 @@ export default function BusinessCasePage() {
                   <th className="px-3 py-3 font-semibold">COGS portés par</th>
                   <th className="px-3 py-3 text-right font-semibold">VAN</th>
                   <th className="px-3 py-3 text-right font-semibold">Payback</th>
+                  <th className="px-3 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -224,6 +245,22 @@ export default function BusinessCasePage() {
                         <td className="px-3 py-2.5">{cogs}</td>
                         <td className={`px-3 py-2.5 text-right tabular-nums ${r.npv < 0 ? 'text-red-600' : ''}`}>{fmtKEur(r.npv)}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">{fmtMonths(r.paybackMonths)}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          {confirmDelete === bc.id ? (
+                            <span className="inline-flex items-center gap-2">
+                              <button onClick={() => deleteCase(bc.id)} disabled={busy} className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100">
+                                Confirmer
+                              </button>
+                              <button onClick={() => setConfirmDelete(null)} disabled={busy} className="text-xs font-semibold text-ink/50 hover:text-ink">
+                                Annuler
+                              </button>
+                            </span>
+                          ) : (
+                            <button onClick={() => setConfirmDelete(bc.id)} disabled={busy} className="rounded-full border border-lav bg-white px-3 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-card-soft">
+                              Supprimer
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -261,9 +298,6 @@ export default function BusinessCasePage() {
             <select value={effCogs} onChange={(e) => setCogsDept(e.target.value)} className={`mt-1 block bg-white ${inputBase}`}>
               {data.departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
             </select>
-            <span className="mt-1 block text-xs text-ink/50">
-              Le métier qui produit le service vendu. Sa navette n&apos;est impactée qu&apos;après acceptation.
-            </span>
           </label>
           <label className="text-sm">
             <span className="font-semibold text-ink">Horizon</span>

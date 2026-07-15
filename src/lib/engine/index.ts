@@ -5,6 +5,14 @@ export { consolidate, fmtK } from './consolidate';
 export { diffSubmissions } from './diff';
 export { projectBaseline, reconductedFixedCosts } from './baseline';
 export type { BaselineParams, BaselineMonth, BaselineResult } from './baseline';
+export { simulateRound } from './simulate-round';
+export type {
+  SimulateRoundParams,
+  SimulateRoundResult,
+  SimulatedDept,
+  SimulatedDriverLine,
+  SimulatedCustomLine,
+} from './simulate-round';
 export { computeActuals } from './actuals';
 export type {
   ActualsParams,

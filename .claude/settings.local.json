@@ -4,7 +4,28 @@
       "PowerShell(npm test *)",
       "PowerShell(npm run *)",
       "PowerShell(\"--- racine projet ---\"; Get-ChildItem -Force -Name | Sort-Object; \"--- .env.local existe ? ---\"; Test-Path .env.local; \"--- .gitignore existe ? ---\"; Test-Path .gitignore)",
-      "PowerShell(git *)"
+      "PowerShell(git *)",
+      "PowerShell(\"=== Scan des fichiers SUIVIS par git pour secrets potentiels ===\"; $files = git ls-files; $hits = $files | ForEach-Object { Select-String -Path $_ -Pattern 'eyJ[A-Za-z0-9_-]{10,}','service_role','SUPABASE_SERVICE','Navette-demo-2026','\\\\.supabase\\\\.co' -ErrorAction SilentlyContinue } ; if \\($hits\\) { $hits | ForEach-Object { \"$\\($_.Filename\\):$\\($_.LineNumber\\): $\\($_.Line.Trim\\(\\)\\)\" } } else { \"Aucun secret evident trouve.\" })",
+      "WebFetch(domain:fincopilot-58bpxau13-delta-business-school.vercel.app)",
+      "WebFetch(domain:fincopilot-ashy.vercel.app)",
+      "PowerShell(\"--- docs/ \\(recursif\\) ---\"; Get-ChildItem -Recurse docs -Force | Select-Object FullName, Length; \"--- recherche de tout PDF dans le repo ---\"; Get-ChildItem -Recurse -Filter *.pdf -Force -ErrorAction SilentlyContinue | Select-Object FullName; \"--- dossier design existe ? ---\"; Test-Path docs/design)",
+      "PowerShell(npm *)",
+      "PowerShell(git log --oneline -9; \"=== etat ===\"; git status -sb | Select-Object -First 3)",
+      "Bash(curl -s -o /dev/null -w \"code=%{http_code} final=%{url_effective}\\\\n\" -L https://fincopilot-ashy.vercel.app)",
+      "Bash(curl -s https://fincopilot-ashy.vercel.app)",
+      "Bash(curl -s -o /dev/null -w \"code=%{http_code} final=%{url_effective}\\\\n\" -L https://fincopilot-navette.vercel.app)",
+      "Bash(curl -s https://fincopilot-navette.vercel.app)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 8; if \\($?\\) { \"TSC OK\" }; \"=== TIRET ===\"; \\(Select-String -Path 'scripts/seed.ts' -Pattern \\([char]0x2014\\) -SimpleMatch\\))",
+      "Bash(curl -s -o /dev/null -w \"code=%{http_code}\\\\n\" https://fincopilot-navette.vercel.app/pilotage)",
+      "Bash(curl -s https://fincopilot-navette.vercel.app/pilotage)",
+      "Bash(curl -s -o /dev/null -w \"code=%{http_code}\\\\n\" https://fincopilot-navette.vercel.app/business-case)",
+      "PowerShell(git push *)",
+      "PowerShell(npx tsx \"C:\\\\Users\\\\PC\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-PC-navette\\\\91c80baa-88b0-438a-882b-0f5f8876b44e\\\\scratchpad\\\\diag-addcustom.ts\" 2>&1)",
+      "Bash(cp \"/c/Users/PC/AppData/Local/Temp/claude/C--Users-PC-navette/91c80baa-88b0-438a-882b-0f5f8876b44e/scratchpad/diag-addcustom.ts\" ./diag-addcustom.ts)",
+      "Bash(npx tsx *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vitest *)",
+      "Bash(npm run *)"
     ]
   }
 }

@@ -166,7 +166,15 @@ export default function NavettePage() {
 
   const supabase = getSupabase();
 
-  const canManage = data.profile.role === 'cfo' || data.profile.department_id === effectiveDeptId;
+  // Qui peut saisir cette navette : le CFO sur toute la societe, chaque metier sur la
+  // sienne, et en exercice top-down la direction (CFO et CEO) pre-remplit n'importe
+  // quelle navette avant de la rendre au metier. En bottom-up, le CEO ne pre-remplit pas.
+  const isDirection = data.profile.role === 'cfo' || data.profile.role === 'ceo';
+  const isTopDown = data.exercise?.mode === 'top_down';
+  const canManage =
+    data.profile.role === 'cfo' ||
+    data.profile.department_id === effectiveDeptId ||
+    (isTopDown && isDirection);
   const canArbitrate = data.profile.role === 'cfo' || data.profile.role === 'ceo';
   const canEditLines = isDraft && canManage;
   const prevQuarterLabel = `T4 ${data.company.budget_year - 1} (réalisé)`;

@@ -5,9 +5,9 @@ import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, usePort
 import { MonthlyChart } from '@/components/monthly-chart';
 import { NavetteStatusCard } from '@/components/navette-status-card';
 import { getSupabase } from '@/lib/supabase';
-import { buildConsolidationInputs, loadActuals } from '@/lib/data';
+import { buildConsolidationInputs, loadActuals, toChannel, toCompanyConfig, toDepartment, toDriverDef } from '@/lib/data';
 import type { ActualsData, BudgetMode, SubmissionRow } from '@/lib/data';
-import { consolidate, projectBaseline } from '@/lib/engine';
+import { consolidate, projectBaseline, simulateRound } from '@/lib/engine';
 import { MONTH_LABELS, fmtEur, fmtKEur, fmtMonths, fmtPct } from '@/lib/format';
 import { exportConsolidation } from '@/lib/xlsx';
 
@@ -81,6 +81,15 @@ export default function DashboardPage() {
   const hasAnyNavette = data.submissions.length > 0;
   const supabase = getSupabase();
 
+  // Avancement de la campagne : un departement compte des qu'il a une version soumise
+  // ou validee (une rejetee seule ne compte pas). Sert au commentaire dynamique de la
+  // projection : combien de navettes manquent encore avant une consolidation complete.
+  const consolidableDeptIds = new Set(
+    data.submissions.filter((s) => s.status === 'submitted' || s.status === 'approved').map((s) => s.department_id),
+  );
+  const submittedCount = consolidableDeptIds.size;
+  const missingCount = data.departments.length - submittedCount;
+
   /** Genere une navette v1 en brouillon (vide) pour chaque departement qui n'en a pas. */
   async function startExercise(mode: BudgetMode) {
     setBusy(true);
@@ -104,6 +113,86 @@ export default function DashboardPage() {
         mode === 'top_down'
           ? `Exercice ${data!.company.budget_year} ouvert en top-down : ${rows.length} navette(s) v1 créée(s) en brouillon, à pré-remplir par la direction.`
           : `Exercice ${data!.company.budget_year} ouvert en bottom-up : ${rows.length} navette(s) v1 créée(s) en brouillon, à remplir par chaque métier.`,
+      );
+      await reload();
+    } catch (e) {
+      setCycleMsg(`Erreur : ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Simule un round budgetaire complet (demonstration) : pour chaque departement, cree une
+   * nouvelle version, la pre-remplit avec un budget coherent (CA +40 %, COGS 30 %, couts au
+   * cadrage) puis la soumet. Le contenu vient du moteur (simulateRound), rien n'est code ici.
+   */
+  async function simulateRoundNow() {
+    setBusy(true);
+    setCycleMsg(null);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const prevPnl = actuals?.pnlYears.find((y) => y.year === data!.company.budget_year - 1);
+      const sim = simulateRound({
+        config: toCompanyConfig(data!.company),
+        departments: data!.departments.map(toDepartment),
+        driverDefs: data!.driverDefs.map(toDriverDef),
+        channels: data!.channels.map(toChannel),
+        prevYearRevenue: prevPnl ? Number(prevPnl.revenue) : null,
+        cacAvgTarget: data!.company.cac_avg_target,
+      });
+      // Version suivante par departement : on incremente la plus haute existante.
+      const maxVer = new Map<string, number>();
+      for (const s of data!.submissions) {
+        maxVer.set(s.department_id, Math.max(maxVer.get(s.department_id) ?? 0, s.version));
+      }
+      let count = 0;
+      for (const dept of sim.departments) {
+        const version = (maxVer.get(dept.departmentId) ?? 0) + 1;
+        const { data: created, error: eSub } = await supabase
+          .from('submissions')
+          .insert({ department_id: dept.departmentId, version, status: 'draft', created_by: auth.user!.id })
+          .select()
+          .single();
+        if (eSub) throw new Error(eSub.message);
+        const subId = (created as SubmissionRow).id;
+        if (dept.driverLines.length > 0) {
+          const { error: e } = await supabase.from('submission_lines').insert(
+            dept.driverLines.map((l) => ({
+              submission_id: subId,
+              driver_def_id: l.driverDefId,
+              q1: l.q[0], q2: l.q[1], q3: l.q[2], q4: l.q[3],
+              unit_cost: l.unitCost ?? null,
+            })),
+          );
+          if (e) throw new Error(e.message);
+        }
+        if (dept.customLines.length > 0) {
+          const { error: e } = await supabase.from('submission_custom_lines').insert(
+            dept.customLines.map((c, i) => ({
+              submission_id: subId,
+              kind: c.kind,
+              label: c.label,
+              is_new: c.isNew,
+              vendor: null,
+              frequency: c.frequency,
+              amount: null,
+              oneshot_quarter: null,
+              sort: i,
+              q1: c.q[0], q2: c.q[1], q3: c.q[2], q4: c.q[3],
+            })),
+          );
+          if (e) throw new Error(e.message);
+        }
+        const { error: eUp } = await supabase
+          .from('submissions')
+          .update({ status: 'submitted', submitted_at: new Date().toISOString() })
+          .eq('id', subId);
+        if (eUp) throw new Error(eUp.message);
+        count++;
+      }
+      setCycleMsg(
+        `Round simulé : ${count} navette(s) pré-remplie(s) et soumise(s), revenu cible ${fmtKEur(sim.targetRevenue)} (reconduction +40 %). La consolidation est à jour.`,
       );
       await reload();
     } catch (e) {
@@ -251,6 +340,20 @@ export default function DashboardPage() {
               </div>
             </>
           )}
+
+          {/* Demonstration : remplir et soumettre un round complet en un clic */}
+          <div className="mt-4 border-t border-lav/60 pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">Démonstration</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button onClick={simulateRoundNow} disabled={busy} className={btnSecondary}>
+                Simuler un round budgétaire
+              </button>
+              <span className="text-xs text-ink/50">
+                Pré-remplit toutes les navettes avec un budget cohérent (CA +40 %, COGS 30 %, coûts au cadrage), les soumet et incrémente la version.
+              </span>
+            </div>
+          </div>
+
           {cycleMsg && <p className="mt-3 text-sm text-ink/70">{cycleMsg}</p>}
         </div>
       )}
@@ -269,13 +372,17 @@ export default function DashboardPage() {
       {baseline && (
         <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
           <div className="px-5 pt-5">
-            <h2 className="font-semibold text-ink">Scénario de reconduction : si on ne fait rien</h2>
-            <p className="mt-1 text-sm text-ink/60">
-              Projection du P&amp;L {data.company.budget_year} sans aucune navette : aucun nouveau client, aucune expansion,
-              aucun recrutement. Le MRR de fin {baseline.prevYear} s&apos;érode du churn, la marge brute reste au taux de
-              cadrage, et le socle de coûts fixes de {baseline.prevYear} est reconduit.
-            </p>
+            <h2 className="font-semibold text-ink">Projection du P&amp;L {data.company.budget_year}</h2>
           </div>
+
+          {/* Commentaire dynamique : il suit l'avancement de la campagne */}
+          {missingCount > 0 && (
+            <div className="mx-5 mt-4 rounded-xl bg-peach px-4 py-3 text-sm text-ink">
+              {submittedCount === 0
+                ? `Aucune navette soumise : voici le budget reconduit, tel qu'il serait sans aucune action (${missingCount} navette${missingCount > 1 ? 's' : ''} attendue${missingCount > 1 ? 's' : ''}).`
+                : `${submittedCount} navette${submittedCount > 1 ? 's' : ''} soumise${submittedCount > 1 ? 's' : ''} sur ${data.departments.length}, ${missingCount} en attente. Tant que la consolidation n'est pas complète, seule cette projection à budget inchangé est disponible.`}
+            </div>
+          )}
 
           <div className="mt-4 grid grid-cols-2 gap-4 px-5 lg:grid-cols-5">
             <Card title="MRR fin d'année" value={fmtKEur(baseline.res.totals.mrrEnd)} tone="bad" hint="Érodé par le churn" />
@@ -377,9 +484,6 @@ export default function DashboardPage() {
           <h2 className="font-semibold text-red-700">
             Consolidation refusée : {result.blocking.length} contrôle(s) bloquant(s)
           </h2>
-          <p className="mt-1 text-sm italic text-red-600">
-            Principe : on ne produit pas un P&L faux. Corrigez les points ci-dessous puis rechargez.
-          </p>
           <ul className="mt-3 space-y-2 text-sm text-red-700">
             {result.blocking.map((a, i) => (
               <li key={i} className="flex items-start gap-2">
