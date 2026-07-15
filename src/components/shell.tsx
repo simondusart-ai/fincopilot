@@ -97,23 +97,20 @@ export function Header({ data }: { data: PortalData | null }) {
     { href: '/reglages', label: 'Réglages', show: role === 'cfo' },
   ].filter((l) => l.show);
   const pill = (active: boolean, enabled = true) =>
-    `rounded-full px-3 py-1.5 text-sm font-semibold transition-colors ${
+    `whitespace-nowrap rounded-full px-2.5 py-1.5 text-sm font-semibold transition-colors ${
       active ? 'bg-primary text-white' : enabled ? 'text-ink hover:bg-card-soft' : 'text-ink/30'
     }`;
 
   return (
     <header className="mx-auto w-full max-w-6xl px-4 pt-4">
-      <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-white px-5 py-3 shadow-sm">
-        <Link href="/" aria-label="Navette, accueil">
+      {/* Header sur UNE ligne pour tous les roles : jamais de flex-wrap ; le groupe d'onglets
+          scrolle horizontalement sous 1024 px plutot que de passer a la ligne. */}
+      <div className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm">
+        <Link href="/" aria-label="Navette, accueil" className="shrink-0">
           <Logo size="sm" />
         </Link>
-        {data && (
-          <span className="hidden border-l border-lav pl-4 text-sm text-ink/50 md:inline">
-            {data.company.name} · budget {data.company.budget_year}
-          </span>
-        )}
-        <div className="ml-1 flex flex-wrap items-center gap-1">
-          <nav className="flex items-center gap-0.5" aria-label="Étapes du processus">
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <nav className="flex shrink-0 items-center gap-0.5" aria-label="Étapes du processus">
             {steps.map((s, i) => {
               const active = pathname === s.href;
               return (
@@ -132,8 +129,8 @@ export function Header({ data }: { data: PortalData | null }) {
               );
             })}
           </nav>
-          <span className="mx-1 hidden h-5 w-px bg-lav sm:block" aria-hidden="true" />
-          <nav className="flex items-center gap-0.5" aria-label="Outils">
+          <span className="mx-1 hidden h-5 w-px shrink-0 bg-lav sm:block" aria-hidden="true" />
+          <nav className="flex shrink-0 items-center gap-0.5" aria-label="Outils">
             {support.map((l) => (
               <Link key={l.href} href={l.href} className={pill(pathname === l.href)}>
                 {l.label}
@@ -141,7 +138,7 @@ export function Header({ data }: { data: PortalData | null }) {
             ))}
           </nav>
         </div>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {data && (
             <span className="hidden text-right leading-tight sm:block">
               <span className="block text-sm font-semibold text-ink">{data.profile.full_name}</span>
