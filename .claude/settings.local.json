@@ -32,7 +32,18 @@
       "Bash(command -v rsvg-convert magick convert inkscape)",
       "Bash(node -e \"try{require.resolve\\('sharp'\\);console.log\\('sharp yes'\\)}catch{console.log\\('no sharp'\\)}\")",
       "Bash(node -e \"const sharp=require\\('sharp'\\);const fs=require\\('fs'\\);sharp\\(Buffer.from\\(fs.readFileSync\\('preview.svg'\\)\\)\\).png\\(\\).toFile\\('preview.png'\\).then\\(i=>console.log\\('ok',i.width,i.height\\)\\).catch\\(e=>console.error\\(e.message\\)\\)\")",
-      "Bash(node -e \"const sharp=require\\('sharp'\\);const fs=require\\('fs'\\);const dir='C:/Users/PC/AppData/Local/Temp/claude/C--Users-PC-navette/91c80baa-88b0-438a-882b-0f5f8876b44e/scratchpad';sharp\\(fs.readFileSync\\(dir+'/preview.svg'\\),{density:150}\\).png\\(\\).toFile\\(dir+'/preview.png'\\).then\\(i=>console.log\\('ok',i.width,i.height\\)\\).catch\\(e=>console.error\\('ERR',e.message\\)\\)\")"
+      "Bash(node -e \"const sharp=require\\('sharp'\\);const fs=require\\('fs'\\);const dir='C:/Users/PC/AppData/Local/Temp/claude/C--Users-PC-navette/91c80baa-88b0-438a-882b-0f5f8876b44e/scratchpad';sharp\\(fs.readFileSync\\(dir+'/preview.svg'\\),{density:150}\\).png\\(\\).toFile\\(dir+'/preview.png'\\).then\\(i=>console.log\\('ok',i.width,i.height\\)\\).catch\\(e=>console.error\\('ERR',e.message\\)\\)\")",
+      "Bash(git checkout *)",
+      "Bash(node -e \"const sharp=require\\('sharp'\\);const fs=require\\('fs'\\);const d='C:/Users/PC/AppData/Local/Temp/claude/C--Users-PC-navette/91c80baa-88b0-438a-882b-0f5f8876b44e/scratchpad';sharp\\(fs.readFileSync\\(d+'/pictos.svg'\\),{density:160}\\).png\\(\\).toFile\\(d+'/pictos.png'\\).then\\(i=>console.log\\('ok',i.width,i.height\\)\\).catch\\(e=>console.error\\(e.message\\)\\)\")",
+      "Bash(node -e \"const sharp=require\\('sharp'\\);const fs=require\\('fs'\\);const d='C:/Users/PC/AppData/Local/Temp/claude/C--Users-PC-navette/91c80baa-88b0-438a-882b-0f5f8876b44e/scratchpad';sharp\\(fs.readFileSync\\(d+'/pictos2.svg'\\),{density:170}\\).png\\(\\).toFile\\(d+'/pictos2.png'\\).then\\(i=>console.log\\('ok'\\)\\).catch\\(e=>console.error\\(e.message\\)\\)\")",
+      "Bash(node -e \"const sharp=require\\('sharp'\\);const fs=require\\('fs'\\);const d='C:/Users/PC/AppData/Local/Temp/claude/C--Users-PC-navette/91c80baa-88b0-438a-882b-0f5f8876b44e/scratchpad';sharp\\(fs.readFileSync\\(d+'/nav.svg'\\),{density:160}\\).png\\(\\).toFile\\(d+'/nav.png'\\).then\\(\\(\\)=>console.log\\('ok'\\)\\).catch\\(e=>console.error\\(e.message\\)\\)\")",
+      "Bash(cat)",
+      "Bash(node /tmp/renderheader.js)",
+      "Bash(node /tmp/solve.js)",
+      "Bash(node /tmp/solve2.js)",
+      "PowerShell(npx vitest run src/lib/engine/__tests__/scenario-fill.test.ts 2>&1 | Select-Object -Last 45)",
+      "Bash(grep -iE \"^\\(puppeteer|playwright|@playwright\\)$\")",
+      "Bash(python -c ' *)"
     ]
   }
 }

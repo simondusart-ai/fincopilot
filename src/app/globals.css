@@ -11,6 +11,7 @@
   --color-accent: #5747ff;     /* badges, liens */
   --color-mint: #9efcbb;       /* strictement décoratif : pastilles, icônes */
   --color-peach: #ffc192;      /* bandeaux d'alertes de gestion, texte noir dessus */
+  --color-deep: #17114a;       /* fond des cartes de synthèse sombres, texte blanc dessus */
 }
 
 /* Police Poppins injectée par next/font (variable --font-poppins), repli système si indisponible. */

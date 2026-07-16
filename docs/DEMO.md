@@ -24,7 +24,7 @@ Préparation, avant la restitution : `npm run seed` pour remettre la démo à z�
 
 **9. Le workflow de validation, la navette telle qu'on la vit (1 min 30).** Ouvrir la navette Sales : elle n'est plus une grille de drivers abstraits mais des lignes libres nommées (Head of Sales, Sales executive 1 à 3, Hubspot, Aircall, Lemlist), chacune marquée existante ou nouvelle, avec sa fréquence de décaissement. Se connecter en `ceo@fincopilot.demo`, la renvoyer au métier avec un motif ("Le troisième Sales executive n'est pas finançable au T2"). Côté Head of Sales : la timeline affiche "v1 renvoyée le JJ/MM/AAAA : motif", la navette sort de la consolidation, il crée une v2 qui reprend automatiquement ses lignes libres, corrige, resoumet. Le CFO ou le CEO valide : la v2 est consolidée. Le budget cesse d'être un fichier, il devient une conversation tracée.
 
-**10. Sous le capot et roadmap (45 s).** Terminal : `npm test`, 145 tests verts, calculs vérifiés à la main, aucun chiffre rédigé par IA. Roadmap : reprise des réalisés depuis la comptabilité (le réalisé poste par poste alimentera la colonne T-1), NRR par cohorte client par client, multi-tenant.
+**10. Sous le capot et roadmap (45 s).** Terminal : `npm test`, 157 tests verts, calculs vérifiés à la main, aucun chiffre rédigé par IA. Roadmap : reprise des réalisés depuis la comptabilité (le réalisé poste par poste alimentera la colonne T-1), NRR par cohorte client par client, multi-tenant.
 
 ## Plans de secours
 

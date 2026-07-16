@@ -1,10 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
+import { Badge, ErrorBox, Loading, Page, btnPrimary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
-import { computeBusinessCase, type BusinessCaseInput, type BusinessCaseYear } from '@/lib/engine';
-import { fmtKEur, fmtMonths } from '@/lib/format';
+import { computeBusinessCase, type BusinessCaseInput, type BusinessCaseResult, type BusinessCaseYear } from '@/lib/engine';
+import { fmtKEur, fmtKEurSigned, fmtMonths, fmtPct } from '@/lib/format';
 
 interface YearForm {
   revenue: string;
@@ -86,6 +86,85 @@ function CashFlowBars({ years }: { years: BusinessCaseYear[] }) {
         })}
       </svg>
     </div>
+  );
+}
+
+const CAPTION = 'whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-lav';
+const DIVIDER = 'lg:border-l lg:border-white/20';
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 8.5 L6.5 12 L13 4.5" />
+    </svg>
+  );
+}
+
+/**
+ * Carte de synthese du business case : VAN, TRI, cash-flow cumule, payback.
+ * Toutes les valeurs et les phrases viennent du moteur (templates a trous), aucun chiffre en dur.
+ */
+function BusinessCaseSummary({ result }: { result: BusinessCaseResult }) {
+  const horizonMonths = result.horizonYears * 12;
+  const createsValue = result.npv >= 0;
+  const rateTxt = fmtPct(result.discountRate, 1);
+  const pb = result.paybackMonths;
+
+  const npvSentence =
+    `Actualisé à ${rateTxt}, le projet ${createsValue ? 'dégage' : 'détruit'} ${fmtKEur(Math.abs(result.npv))} de valeur nette` +
+    (result.irr === null ? '.' : ` avec un rendement interne de ${fmtPct(result.irr)}.`);
+
+  return (
+    <section className="relative mt-6 overflow-hidden rounded-3xl bg-deep p-6 text-white sm:p-8">
+      <div aria-hidden="true" className="pointer-events-none absolute -right-20 -top-28 h-80 w-80 rounded-full bg-ink/30" />
+
+      <div className="relative grid grid-cols-1 gap-8 lg:grid-cols-[1.4fr_1fr_1fr] lg:gap-0">
+        {/* VAN */}
+        <div className="lg:pr-8">
+          <p className={CAPTION}>VAN : valeur actuelle nette</p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <span className="text-4xl font-bold tabular-nums">{fmtKEurSigned(result.npv)}</span>
+            <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ink ${createsValue ? 'bg-mint' : 'bg-peach'}`}>
+              {createsValue && <CheckIcon />}
+              {createsValue ? 'Créateur de valeur' : 'Destructeur de valeur'}
+            </span>
+          </div>
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-lav">{npvSentence}</p>
+        </div>
+
+        {/* TRI et cash-flow cumulé */}
+        <div className={`flex flex-col gap-6 ${DIVIDER} lg:px-8`}>
+          <div>
+            <p className={CAPTION}>TRI</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">{result.irr === null ? 'n.a.' : fmtPct(result.irr)}</p>
+            <p className="mt-0.5 whitespace-nowrap text-xs text-lav">vs taux d&apos;actualisation {rateTxt}</p>
+          </div>
+          <div>
+            <p className={CAPTION}>Cash-flow cumulé</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">{fmtKEurSigned(result.totalCashFlow)}</p>
+            <p className="mt-0.5 whitespace-nowrap text-xs text-lav">
+              à horizon {result.horizonYears} an{result.horizonYears > 1 ? 's' : ''}
+            </p>
+          </div>
+        </div>
+
+        {/* Payback */}
+        <div className={`${DIVIDER} lg:pl-8`}>
+          <p className={CAPTION}>Payback</p>
+          <p className="mt-1 whitespace-nowrap text-2xl font-bold tabular-nums">
+            {pb === null ? 'non atteint' : fmtMonths(pb)} / {horizonMonths} mois
+          </p>
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/25">
+            <div className="h-full rounded-full bg-mint" style={{ width: `${pb === null ? 0 : Math.min(100, (pb / horizonMonths) * 100)}%` }} />
+          </div>
+          <p className="mt-2 text-xs text-lav">
+            {pb === null
+              ? 'Investissement non récupéré sur l’horizon.'
+              : `Investissement récupéré en ${fmtMonths(pb)} sur ${horizonMonths}.`}
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -353,11 +432,7 @@ export default function BusinessCasePage() {
       </div>
 
       {/* Résultats */}
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card title="VAN" value={fmtKEur(result.npv)} tone={result.npv < 0 ? 'bad' : 'default'} dot={result.npv >= 0} hint={`Taux d'actualisation ${(result.discountRate * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`} />
-        <Card title="Payback" value={fmtMonths(result.paybackMonths)} tone={result.paybackMonths === null ? 'bad' : 'default'} hint={result.paybackMonths === null ? 'Non atteint sur l’horizon' : undefined} />
-        <Card title="Cash-flow cumulé" value={fmtKEur(result.totalCashFlow)} tone={result.totalCashFlow < 0 ? 'bad' : 'default'} dot={result.totalCashFlow >= 0} />
-      </div>
+      <BusinessCaseSummary result={result} />
 
       {/* Graphique CF annuel */}
       <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm">

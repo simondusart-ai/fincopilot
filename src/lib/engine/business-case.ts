@@ -56,6 +56,8 @@ export interface BusinessCaseResult {
   totalCashFlow: number;
   /** Payback en mois, null si le cumul ne devient jamais positif. */
   paybackMonths: number | null;
+  /** Taux de rentabilite interne annuel, null si les flux ne changent pas de signe. */
+  irr: number | null;
 }
 
 import type { ConsolidationInputs, InlineSubmissionLine, QuarterValues } from './types';
@@ -180,6 +182,42 @@ export function applyBusinessCases(inputs: ConsolidationInputs, cases: AcceptedB
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
+/** Bornes de recherche du TRI : -99 % (perte quasi totale) a +1000 %. */
+const IRR_MIN = -0.99;
+const IRR_MAX = 10;
+
+/** VAN des flux annuels a un taux donne, memes conventions que computeBusinessCase (t = 1..n). */
+const npvAtRate = (cashFlows: number[], rate: number): number =>
+  cashFlows.reduce((acc, cf, i) => acc + cf / Math.pow(1 + rate, i + 1), 0);
+
+/**
+ * Taux de rentabilite interne : taux annuel r qui annule la VAN des flux, par bisection.
+ * Retourne null quand la VAN garde le meme signe sur tout l'intervalle de recherche
+ * (flux jamais positifs, flux jamais negatifs, ou aucun changement de signe exploitable).
+ * Fonction pure. Limite : sur des flux alternant plusieurs fois de signe, plusieurs taux
+ * annulent la VAN ; la bisection en retourne un seul, celui que l'intervalle encadre.
+ */
+export function internalRateOfReturn(cashFlows: number[]): number | null {
+  if (cashFlows.length === 0) return null;
+  const atMin = npvAtRate(cashFlows, IRR_MIN);
+  const atMax = npvAtRate(cashFlows, IRR_MAX);
+  if (atMin === 0) return IRR_MIN;
+  if (atMax === 0) return IRR_MAX;
+  if (atMin > 0 === atMax > 0) return null;
+
+  let lo = IRR_MIN;
+  let hi = IRR_MAX;
+  const loIsPositive = atMin > 0;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    const v = npvAtRate(cashFlows, mid);
+    if (v === 0) return mid;
+    if (v > 0 === loIsPositive) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 export function computeBusinessCase(params: BusinessCaseInput): BusinessCaseResult {
   const horizon = clamp(Math.round(params.horizonYears ?? 3), 1, 5);
   const rate = params.discountRate ?? 0.15;
@@ -224,5 +262,7 @@ export function computeBusinessCase(params: BusinessCaseInput): BusinessCaseResu
     });
   }
 
-  return { label: params.label, horizonYears: horizon, discountRate: rate, years, npv, totalCashFlow: cumulative, paybackMonths };
+  const irr = internalRateOfReturn(years.map((y) => y.cashFlow));
+
+  return { label: params.label, horizonYears: horizon, discountRate: rate, years, npv, totalCashFlow: cumulative, paybackMonths, irr };
 }

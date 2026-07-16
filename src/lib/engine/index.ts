@@ -36,7 +36,7 @@ export type {
   ActualMonthResult,
   ActualsResult,
 } from './actuals';
-export { computeBusinessCase, applyBusinessCases, businessCaseLines, BUSINESS_CASE_TAG } from './business-case';
+export { computeBusinessCase, applyBusinessCases, businessCaseLines, internalRateOfReturn, BUSINESS_CASE_TAG } from './business-case';
 export type {
   BusinessCaseInput,
   BusinessCaseYearInput,

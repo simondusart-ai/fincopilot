@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBusinessCases, businessCaseLines, computeBusinessCase, type AcceptedBusinessCase } from '../business-case';
+import { applyBusinessCases, businessCaseLines, computeBusinessCase, internalRateOfReturn, type AcceptedBusinessCase } from '../business-case';
 import { consolidate } from '../consolidate';
 import type { ConsolidationInputs } from '../types';
 
@@ -35,6 +35,46 @@ describe('computeBusinessCase : projet CGP (lecture defavorable)', () => {
 
   it('VAN negative (projet destructeur de valeur au taux retenu)', () => {
     expect(res.npv).toBeLessThan(0);
+  });
+
+  it('TRI incalculable : les flux sont negatifs sur tout l horizon', () => {
+    expect(res.irr).toBeNull();
+  });
+});
+
+describe('internalRateOfReturn : taux qui annule la VAN', () => {
+  it('flux -1000 puis +600 et +600 : TRI = 13,1 % (verifie a la main)', () => {
+    // 600x + 600x2 = 1000 avec x = 1/(1+r) : x = 0,884437 donc r = 0,130662.
+    const irr = internalRateOfReturn([-1_000, 600, 600]);
+    expect(irr).not.toBeNull();
+    expect(irr! * 100).toBeCloseTo(13.1, 1);
+  });
+
+  it('la VAN au TRI est nulle', () => {
+    const flows = [-1_000, 600, 600];
+    const irr = internalRateOfReturn(flows)!;
+    const npv = flows.reduce((acc, cf, i) => acc + cf / Math.pow(1 + irr, i + 1), 0);
+    expect(npv).toBeCloseTo(0, 4);
+  });
+
+  it('null si les flux ne changent jamais de signe', () => {
+    expect(internalRateOfReturn([-850_000, -1_225_000, -2_225_000])).toBeNull();
+    expect(internalRateOfReturn([100, 200])).toBeNull();
+    expect(internalRateOfReturn([])).toBeNull();
+  });
+
+  it('computeBusinessCase expose le TRI des flux annuels', () => {
+    const res = computeBusinessCase({
+      label: 'tri',
+      horizonYears: 3,
+      discountRate: 0.15,
+      years: [
+        { revenue: 0, recurringCosts: 1_000, fte: 0, monthlyCostPerFte: 0, otherOpex: 0 },
+        { revenue: 600, recurringCosts: 0, fte: 0, monthlyCostPerFte: 0, otherOpex: 0 },
+        { revenue: 600, recurringCosts: 0, fte: 0, monthlyCostPerFte: 0, otherOpex: 0 },
+      ],
+    });
+    expect(res.irr! * 100).toBeCloseTo(13.1, 1);
   });
 });
 
