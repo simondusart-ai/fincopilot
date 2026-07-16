@@ -1,12 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Badge, Card, ErrorBox, Loading, Page, btnPrimary, btnSecondary, inputBase, usePortalData } from '@/components/shell';
 import { getSupabase } from '@/lib/supabase';
 import { SubmissionStatusBadge } from '@/components/navette-status-card';
 import { NavettePnlRecap, type PnlRecapRow } from '@/components/navette-pnl-recap';
-import { businessCaseLines, caGeneratedByQuarter, computeBusinessCase, monthlyizeByFrequency, monthlyizeFlow, quartersFromAmount } from '@/lib/engine';
+import { businessCaseLines, caGeneratedByQuarter, computeBusinessCase, monthlyizeByFrequency, monthlyizeFlow, quarterGrowthPct, quarterValueFromGrowth, quartersFromAmount } from '@/lib/engine';
 import type { DriverKind, LineFrequency } from '@/lib/engine';
 import { fmtKEur } from '@/lib/format';
 import type { DriverDefRow, SubmissionCustomLineRow, SubmissionRow } from '@/lib/data';
@@ -128,6 +128,9 @@ export default function NavettePage() {
   const { data, error, loading, reload } = usePortalData();
   const [deptId, setDeptId] = useState<string | null>(null);
   const [edit, setEdit] = useState<Record<string, EditLine>>({});
+  // Texte brut de la cellule de croissance en cours de frappe (une seule à la fois).
+  // La croissance n'est pas un état : elle se déduit des montants dès que la cellule est quittée.
+  const [growthDraft, setGrowthDraft] = useState<{ key: string; text: string } | null>(null);
   const [customs, setCustoms] = useState<CustomEdit[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -221,6 +224,34 @@ export default function NavettePage() {
     c.amount.trim() !== ''
       ? [...quartersFromAmount(num(c.amount), c.frequency, Number(c.oneshotQuarter) || 1)]
       : c.q.map(num);
+
+  /**
+   * Base de la croissance d'un trimestre : le trimestre précédent, et pour le T1 le réalisé
+   * du T4 de N-1 (colonne de référence). null quand elle n'existe pas ou n'est pas
+   * exploitable : la croissance n'est alors ni affichée ni saisissable.
+   */
+  const growthBase = (def: DriverDefRow, i: number): number | null =>
+    i === 0 ? (def.prev_q4 != null ? Number(def.prev_q4) : null) : num(edit[def.id]?.q[i - 1] ?? '0');
+
+  /**
+   * Croissance affichée d'un trimestre, arrondie à la décimale. Toujours DÉDUITE des
+   * montants : ils sont la seule source de vérité, la croissance n'est jamais stockée.
+   */
+  const growthText = (def: DriverDefRow, i: number): string => {
+    // Un trimestre non renseigné n'a pas de croissance : sans ce garde-fou, une cellule
+    // vide se lirait -100 % (0 rapporté à sa base), ce qui n'est pas un objectif saisi.
+    const raw = edit[def.id]?.q[i] ?? '';
+    if (raw.trim() === '') return '';
+    const g = quarterGrowthPct(growthBase(def, i), num(raw));
+    return g === null ? '' : String(Math.round(g * 10) / 10);
+  };
+
+  /** Saisie d'un objectif de croissance : elle écrit le montant du trimestre, jamais autre chose. */
+  const updateGrowth = (def: DriverDefRow, i: number, text: string) => {
+    setGrowthDraft({ key: `${def.id}-${i}`, text });
+    const v = quarterValueFromGrowth(growthBase(def, i), Number(text) || 0);
+    if (v !== null) updateDriverQ(def.id, i, String(Math.round(v)));
+  };
 
   /** Coût d'un trimestre pour une ligne du référentiel (un volume de clients n'est pas un coût). */
   const driverQuarterValue = (def: DriverDefRow, i: number): number => {
@@ -870,7 +901,8 @@ export default function NavettePage() {
                       <tbody>
                         {/* Lignes du référentiel */}
                         {drivers.map((def) => (
-                          <tr key={def.id} className="border-b border-lav/60">
+                          <Fragment key={def.id}>
+                          <tr className="border-b border-lav/60">
                             <td className="px-5 py-2.5">
                               <p className="font-semibold text-ink">{def.label}</p>
                               <p className="text-xs text-ink/50">{KIND_LABEL[def.kind]}</p>
@@ -917,6 +949,52 @@ export default function NavettePage() {
                             )}
                             {extensible && canEditLines && <td />}
                           </tr>
+                            {/*
+                              Aide à la saisie, sous la ligne de New MRR : le même trimestre lu en
+                              croissance plutôt qu'en euros. Les deux sens sont réciproques ; seuls
+                              les montants sont enregistrés, la croissance se recalcule.
+                            */}
+                            {def.kind === 'new_mrr' && (
+                              <tr className="border-b border-lav/60 italic">
+                                <td className="px-5 py-2.5">
+                                  <p className="font-semibold text-ink/70">Croissance MRR (%)</p>
+                                  <p className="text-xs text-ink/50">% vs trimestre précédent</p>
+                                </td>
+                                <td className="px-3 py-2.5"><Badge tone="muted">Objectif</Badge></td>
+                                {s.hasVendor && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                                {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                                {extensible && <td className="px-3 py-2.5 text-right text-ink/30">-</td>}
+                                {extensible && <td className="px-3 py-2.5 text-ink/30">-</td>}
+                                <td className="px-3 py-2.5 text-right text-ink/30">-</td>
+                                {[0, 1, 2, 3].map((i) => {
+                                  const key = `${def.id}-${i}`;
+                                  const noBase = growthBase(def, i) === null;
+                                  return (
+                                    <td key={i} className="px-3 py-2.5 text-right">
+                                      <span className="inline-flex items-center justify-end gap-1">
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          disabled={!canEditLines || noBase}
+                                          // Pendant la frappe, le texte saisi fait foi : sans cela, une
+                                          // valeur intermédiaire ("1." ou "-") serait réécrite aussitôt.
+                                          value={growthDraft?.key === key ? growthDraft.text : growthText(def, i)}
+                                          onChange={(e) => updateGrowth(def, i, e.target.value)}
+                                          onBlur={() => setGrowthDraft(null)}
+                                          placeholder={noBase ? '-' : ''}
+                                          title={noBase ? 'Aucun trimestre de référence : la croissance ne peut pas se calculer.' : undefined}
+                                          className={`w-16 text-right ${inputBase}`}
+                                        />
+                                        <span className="text-xs text-ink/40">%</span>
+                                      </span>
+                                    </td>
+                                  );
+                                })}
+                                {hasHeadcount && <td className="px-5 py-2.5 text-right text-ink/30">-</td>}
+                                {extensible && canEditLines && <td />}
+                              </tr>
+                            )}
+                          </Fragment>
                         ))}
 
                         {/* Lignes libres du métier */}

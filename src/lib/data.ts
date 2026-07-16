@@ -60,7 +60,10 @@ export interface DriverDefRow {
   channel_id: string | null;
   monthly_key: string | null;
   sort: number;
-  /** Réalisé du trimestre précédent. Non alimenté pour l'instant (voir Limites). */
+  /**
+   * Réalisé du T4 de l'année N-1. Alimenté seulement là où la donnée existe poste par poste
+   * (voir Limites) ; il sert de colonne de référence et de base à la croissance du T1.
+   */
   prev_q4: number | null;
 }
 

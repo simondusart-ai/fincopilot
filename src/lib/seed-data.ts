@@ -43,6 +43,12 @@ export interface SeedDriverDef {
   channelId?: string;
   monthlyKey?: string;
   sort: number;
+  /**
+   * Realise du T4 de l'annee N-1, affiche en colonne de reference et servant de base a la
+   * croissance du T1. Purement indicatif : le moteur ne le lit jamais, aucun chiffre
+   * consolide n'en depend.
+   */
+  prevQ4?: number;
 }
 
 export interface SeedLine {
@@ -169,7 +175,8 @@ export const FINCOPILOT: SeedCompany = {
     // Masse salariale Tech saisie en lignes libres par ETP (comme Sales), voir la navette.
     { id: 'fc-tec-opex', departmentId: 'fc-tech', code: 'OPEX', label: 'Licences & outils dev', kind: 'opex', sort: 3 },
     // Sales
-    { id: 'fc-sal-mrr', departmentId: 'fc-sales', code: 'NEW_MRR_B2B', label: 'New MRR', kind: 'new_mrr', sort: 1 },
+    // prevQ4 : le T4 2026 realise sert de base a la croissance du T1 (15 000 / 13 000 = +15,4 %).
+    { id: 'fc-sal-mrr', departmentId: 'fc-sales', code: 'NEW_MRR_B2B', label: 'New MRR', kind: 'new_mrr', sort: 1, prevQ4: 13_000 },
     { id: 'fc-sal-oneoff', departmentId: 'fc-sales', code: 'ONE_SHOT', label: 'Revenus one-shot', kind: 'revenue_other', monthlyKey: 'saison_fiscale', sort: 2 },
     // La masse salariale et les outils de Sales sont saisis en lignes libres (voir la navette).
     // Growth : un couple dépenses / clients par canal

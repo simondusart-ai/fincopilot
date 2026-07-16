@@ -144,6 +144,7 @@ async function insertCompany(seed: SeedCompany, history?: CompanyHistory) {
         channel_id: def.channelId ? channelIds.get(def.channelId)! : null,
         monthly_key: def.monthlyKey ?? null,
         sort: def.sort,
+        prev_q4: def.prevQ4 ?? null,
       })
       .select()
       .single();

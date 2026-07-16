@@ -14,6 +14,7 @@ export type {
   ScenariosResult,
   CacEffort,
 } from './scenario';
+export { quarterGrowthPct, quarterValueFromGrowth } from './mrr-growth';
 export { diffSubmissions } from './diff';
 export { projectBaseline, reconductedFixedCosts } from './baseline';
 export type { BaselineParams, BaselineMonth, BaselineResult } from './baseline';
