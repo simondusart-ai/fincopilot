@@ -142,7 +142,10 @@ export const FINCOPILOT: SeedCompany = {
       saison_fiscale: [0.6, 0.6, 0.8, 1.2, 1.6, 1.5, 1.2, 0.8, 0.8, 0.9, 1, 1],
     },
   },
-  openingClients: 13_000,
+  // Calee pour que le roll-forward sur les flux reels 2026 (+9 984 nets) termine l'annee
+  // exactement a 23 225 clients, la base de fin N retenue partout ailleurs (Section 1,
+  // hypotheses de simulation, effort en CAC du scenario rebound).
+  openingClients: 13_241,
   cacAvgTarget: 515,
   departments: [
     { id: 'fc-tech', code: 'TEC', name: 'Tech & Product', envelope: 5_000_000, isSalesMarketing: false, sort: 1 },

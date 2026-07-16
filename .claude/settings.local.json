@@ -43,7 +43,9 @@
       "Bash(node /tmp/solve2.js)",
       "PowerShell(npx vitest run src/lib/engine/__tests__/scenario-fill.test.ts 2>&1 | Select-Object -Last 45)",
       "Bash(grep -iE \"^\\(puppeteer|playwright|@playwright\\)$\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(npm test *)",
+      "Bash(node -e \"console.log\\('SUPABASE_URL:', process.env.SUPABASE_URL ? 'set' : 'ABSENT'\\); console.log\\('SERVICE_ROLE:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'set' : 'ABSENT'\\)\")"
     ]
   }
 }

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { computeActuals, type ActualsParams } from '../actuals';
-import { FINCOPILOT, FINCOPILOT_ACTUALS_2026 } from '../../seed-data';
+import { FINCOPILOT, FINCOPILOT_ACTUALS_2026, FINCOPILOT_SIMULATION } from '../../seed-data';
 
 /**
  * Tests du moteur des indicateurs realises, ancres sur l'historique 2026 FinCopilot.
  * Conventions retenues (cf. echanges de cadrage) :
- * - base clients : roll-forward ancre sur openingClients (13 000), donnees fournies verbatim ;
+ * - base clients : roll-forward ancre sur openingClients (13 241), donnees fournies verbatim ;
+ *   l'ouverture est calee pour que les +9 984 nets de 2026 terminent l'annee a 23 225 clients,
+ *   la base de fin N de reference (Section 1, hypotheses de simulation, effort en CAC rebound) ;
  * - runway : burn du dernier mois (6230/280 = 22,3 mois en decembre).
  */
 
@@ -23,9 +25,17 @@ describe('computeActuals : ancrage sur l historique 2026 FinCopilot', () => {
   const res = computeActuals(params, FINCOPILOT_ACTUALS_2026, []);
   const dec = res.months.find((m) => m.month === 12)!;
 
-  it('base clients fin decembre 2026 = 22 984 (roll-forward depuis 13 000)', () => {
-    expect(dec.baseEnd).toBe(22_984);
-    expect(res.endBaseClients).toBe(22_984);
+  it('base clients fin decembre 2026 = 23 225 (roll-forward depuis 13 241)', () => {
+    // Ancre de reference : la meme base de fin N que les hypotheses de simulation
+    // (baseClientsEndN) et que le bloc CAC du scenario rebound.
+    expect(dec.baseOpen).toBe(22_385);
+    expect(dec.baseEnd).toBe(23_225);
+    expect(res.endBaseClients).toBe(23_225);
+  });
+
+  it('churn logo de decembre = 291 / 22 385 = 1,30 %', () => {
+    expect(dec.monthlyLogoChurn!).toBeCloseTo(291 / 22_385, 6);
+    expect(dec.monthlyLogoChurn! * 100).toBeCloseTo(1.3, 2);
   });
 
   it('CAC moyen charge de decembre proche de 643 EUR', () => {
@@ -63,11 +73,19 @@ describe('computeActuals : ancrage sur l historique 2026 FinCopilot', () => {
     expect(jun.cashEnd).toBeNull();
   });
 
-  it('roll-forward et churn logo : base d ouverture janvier = 13 000, churn mensuel positif', () => {
+  it('roll-forward et churn logo : base d ouverture janvier = 13 241, churn mensuel positif', () => {
     const jan = res.months.find((m) => m.month === 1)!;
-    expect(jan.baseOpen).toBe(13_000);
-    expect(jan.baseEnd).toBe(13_000 + 834 - 234);
-    expect(jan.monthlyLogoChurn!).toBeCloseTo(234 / 13_000, 5);
+    expect(jan.baseOpen).toBe(13_241);
+    expect(jan.baseEnd).toBe(13_241 + 834 - 234);
+    expect(jan.monthlyLogoChurn!).toBeCloseTo(234 / 13_241, 5);
+    // 1,7672 % : l'ecran affiche toujours 1,8 % a une decimale, comme avec l'ancienne ouverture.
+    expect((jan.monthlyLogoChurn! * 100).toFixed(1)).toBe('1.8');
+  });
+
+  it('la base de fin 2026 alimente la base de depart des hypotheses de simulation', () => {
+    // Verrou de coherence : si l'un des deux bouge sans l'autre, la lecture du scenario
+    // rebound (effort en CAC) et le realise ne parlent plus de la meme societe.
+    expect(res.endBaseClients).toBe(FINCOPILOT_SIMULATION.baseClientsEndN);
   });
 });
 
